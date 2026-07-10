@@ -1,2 +1,3 @@
-.vscode/
-.kiro/
+~$*.xlsx
+.DS_Store
+*.log
