@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buscador de Equipos</title>
+    <title>Gestion de Equipamiento</title>
     <link rel="stylesheet" href="style.css">
     <!-- Include SheetJS from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-container">
         <header>
-            <h1>Buscador de Equipos</h1>
+            <h1>Gestion de Equipamiento</h1>
             <p>Selecciona una hoja y explora tus equipos.</p>
             <div id="localFileWarning" class="hidden" style="margin-top: 1rem; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
                 <p style="color: #fca5a5; margin-bottom: 0; font-size: 0.9rem;">Estás abriendo la aplicación localmente sin servidor. Por seguridad, el navegador no puede cargar los Excel automáticamente. Por favor, cárgalos manualmente a continuación.</p>
@@ -30,12 +31,25 @@
                         <input type="file" id="manualCertInput" accept=".xlsx, .xls" style="display: none;">
                     </label>
 
+                    <label class="file-btn" style="background: #a855f7; padding: 0.8rem 1.5rem; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
+                        3. Cargar Inventario
+                        <input type="file" id="manualInventarioInput" accept=".xlsx, .xls" style="display: none;">
+                    </label>
+
+                    <button id="exportExcelBtn" class="file-btn" style="background: #10b981; color: white; border: none; cursor: pointer; padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: bold; transition: transform 0.2s;">
+                        📊 Exportar a Excel
+                    </button>
+
                     <button id="cleanDuplicatesBtn" class="file-btn hidden" style="background: #f59e0b; color: white; border: none; cursor: pointer; padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: bold;">
                         ✨ Limpiar Duplicados de Etiquetas
                     </button>
 
                     <div id="certLoadedMsg" class="hidden" style="display: flex; align-items: center; color: #10b981; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #10b981;">
                         ✓ Etiquetas Lab Cargadas
+                    </div>
+
+                    <div id="inventarioLoadedMsg" class="hidden" style="display: flex; align-items: center; color: #a855f7; font-weight: bold; background: rgba(168, 85, 247, 0.1); padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #a855f7;">
+                        ✓ Inventario Cargado
                     </div>
                 </div>
             </div>
@@ -53,8 +67,9 @@
                 <div class="control-group">
                     <label for="searchType">Buscar por</label>
                     <select id="searchType">
-                        <option value="equipo">Equipo (Columna A)</option>
-                        <option value="serie">Número de Serie (Columna C)</option>
+                        <option value="ambos">Ambos (Equipo y Serie)</option>
+                        <option value="equipo">Solo Equipo (Columna A)</option>
+                        <option value="serie">Solo Número de Serie (Columna C)</option>
                     </select>
                 </div>
 
@@ -75,6 +90,15 @@
                     <h2>Detalles del Equipo</h2>
                     <div id="detailsGrid" class="details-grid">
                         <!-- Content populated dynamically -->
+                    </div>
+
+                    <div id="inventarioDataSection" class="hidden" style="margin-top: 1.5rem; background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 8px; border: 1px solid #374151;">
+                        <h3 style="font-size: 1rem; margin-bottom: 1rem; color: #e5e7eb; border-bottom: 1px solid #374151; padding-bottom: 0.5rem;">
+                            Datos de Inventario
+                        </h3>
+                        <div id="inventarioDetailsGrid" class="details-grid" style="margin-bottom: 0;">
+                            <!-- Populated dynamically -->
+                        </div>
                     </div>
 
                     <div id="extraDataSection" style="margin-top: 1.5rem; background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 8px; border: 1px solid #374151;">
@@ -107,8 +131,10 @@
                             <button id="saveExtraDataBtn" style="background: #10b981; color: white; border: none; padding: 0.6rem; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 0.5rem; transition: background 0.2s;">Guardar Datos Adicionales</button>
                         </div>
                     </div>
+
                     <div style="margin-top: 1.5rem; text-align: center;">
-                        <a id="certButton" href="#" target="_blank" class="hidden" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.8rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); transition: transform 0.2s, box-shadow 0.2s;">📄 Cert. Calibración</a>
+                        <a id="certButton" href="#" target="_blank" class="hidden" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.8rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); transition: transform 0.2s, box-shadow 0.2s; margin-bottom: 0.5rem;">📄 Cert. Calibración</a>
+                        <a id="certInventarioButton" href="#" target="_blank" class="hidden" style="display: inline-block; background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); color: white; padding: 0.8rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); transition: transform 0.2s, box-shadow 0.2s; margin-bottom: 0.5rem;">📄 Cert. Inventario</a>
                         
                         <div id="addCertSection" class="hidden" style="margin-top: 1rem; background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed #6b7280; text-align: left;">
                             <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: #9ca3af; text-align: center;">No hay certificado asignado. Puedes agregar uno:</p>
@@ -124,6 +150,12 @@
                     <div class="image-wrapper">
                         <img id="equipmentImage" src="" alt="Imagen del equipo" class="hidden">
                         <p id="noImageText">No hay imagen disponible para este equipo.</p>
+                    </div>
+                    
+                    <div id="qrCodeContainer" class="hidden" style="margin-top: 1.5rem; text-align: center; background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed #4b5563;">
+                        <h3 style="font-size: 0.9rem; margin-bottom: 1rem; color: #9ca3af;">Código QR del Equipo</h3>
+                        <div id="qrcode" style="display: flex; justify-content: center; background: white; padding: 10px; border-radius: 8px; width: fit-content; margin: 0 auto;"></div>
+                        <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem; margin-bottom: 0;">Escanea para abrir el enlace desde tu celular</p>
                     </div>
                 </div>
             </section>

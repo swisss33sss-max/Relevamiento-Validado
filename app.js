@@ -1,11 +1,18 @@
 const EXCEL_FILE = 'IC-SM-CAT-LAB LISTA CATAMARCA LAB  --  2.xlsx';
 const CERT_FILE = 'Etiquetas Laboratorio.xls';
+const INVENTARIO_FILE = 'Inventario Catamarca.xlsx';
 
 let workbook = null;
 let sheetsData = {}; 
 let currentSheetData = [];
 let headers = [];
 let certData = [];
+let certHeaders = [];
+let certRawData = [];
+
+let inventarioData = [];
+let inventarioHeaders = [];
+let inventarioRawData = [];
 
 const sheetSelect = document.getElementById('sheetSelect');
 const searchType = document.getElementById('searchType');
@@ -18,8 +25,15 @@ const noImageText = document.getElementById('noImageText');
 const localFileWarning = document.getElementById('localFileWarning');
 const manualFileInput = document.getElementById('manualFileInput');
 const manualCertInput = document.getElementById('manualCertInput');
+const manualInventarioInput = document.getElementById('manualInventarioInput');
 const certButton = document.getElementById('certButton');
+const certInventarioButton = document.getElementById('certInventarioButton');
+const inventarioDataSection = document.getElementById('inventarioDataSection');
+const inventarioDetailsGrid = document.getElementById('inventarioDetailsGrid');
 const addCertSection = document.getElementById('addCertSection');
+const qrCodeContainer = document.getElementById('qrCodeContainer');
+const qrcodeElement = document.getElementById('qrcode');
+let qrCodeInstance = null;
 const manualLinkInput = document.getElementById('manualLinkInput');
 const saveManualLinkBtn = document.getElementById('saveManualLinkBtn');
 const cleanDuplicatesBtn = document.getElementById('cleanDuplicatesBtn');
@@ -27,6 +41,7 @@ const extraDataView = document.getElementById('extraDataView');
 const extraDataEdit = document.getElementById('extraDataEdit');
 const toggleEditDataBtn = document.getElementById('toggleEditDataBtn');
 const saveExtraDataBtn = document.getElementById('saveExtraDataBtn');
+const exportExcelBtn = document.getElementById('exportExcelBtn');
 const viewFabricante = document.getElementById('viewFabricante');
 const viewModelo = document.getElementById('viewModelo');
 const viewDescripcion = document.getElementById('viewDescripcion');
@@ -51,6 +66,17 @@ async function init() {
             processCertWorkbook(certWb);
         } catch (e) {
             console.warn("No se pudo cargar 'Etiquetas Laboratorio.xls' automáticamente.", e);
+        }
+
+        // Try to load Inventario file
+        try {
+            const invRes = await fetch(INVENTARIO_FILE);
+            const invBuf = await invRes.arrayBuffer();
+            const invWb = XLSX.read(invBuf, { type: 'array' });
+            processInventarioWorkbook(invWb);
+            document.getElementById('inventarioLoadedMsg').classList.remove('hidden');
+        } catch (e) {
+            console.warn("No se pudo cargar 'Inventario Catamarca.xlsx' automáticamente.", e);
         }
 
     } catch (error) {
@@ -89,14 +115,21 @@ function processWorkbook(wb) {
 
 function processCertWorkbook(wb) {
     certData = [];
+    certRawData = [];
     const sheetName = wb.SheetNames[0];
     const worksheet = wb.Sheets[sheetName];
     const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    
+    if (data.length > 0) {
+        certHeaders = data[0];
+    }
     
     // Start from row 1 to skip headers
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row) continue;
+        certRawData.push(row);
+        
         const equipo = String(row[1] || "").trim().toLowerCase(); // Col B
         const serie = String(row[3] || "").trim().toLowerCase();  // Col D
         const link = String(row[6] || "").trim();                 // Col G
@@ -105,7 +138,57 @@ function processCertWorkbook(wb) {
         const modelo = String(row[5] || "").trim(); // Col F
         
         if (equipo || serie) {
-            certData.push({ equipo, serie, link, tipo, fabricante, modelo });
+            certData.push({ equipo, serie, link, tipo, fabricante, modelo, rowIndex: i - 1 });
+        }
+    }
+}
+
+function processInventarioWorkbook(wb) {
+    inventarioData = [];
+    inventarioRawData = [];
+    const sheetName = wb.SheetNames[0];
+    const worksheet = wb.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    
+    if (data.length > 0) {
+        inventarioHeaders = data[0];
+    }
+    
+    // Determine indices for "Equipo" and "Serie" dynamically or use assumptions
+    let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
+    if (invEqIndex === -1) invEqIndex = 1; // Default to 'Campo/equipo' which is column B (index 1)
+    let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
+    if (invSerIndex === -1) invSerIndex = 3; // Default to 'N Serie' which is column D (index 3)
+
+    let invLinkIndex = inventarioHeaders.findIndex(h => {
+        const lowerH = String(h).toLowerCase();
+        return lowerH.includes('link') || lowerH.includes('url') || lowerH.includes('certificado') || lowerH.includes('documento');
+    });
+
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row) continue;
+        inventarioRawData.push(row);
+        
+        const equipo = String(row[invEqIndex] || "").trim().toLowerCase();
+        const serie = String(row[invSerIndex] || "").trim().toLowerCase();
+        
+        let link = "";
+        if (invLinkIndex !== -1) {
+            link = String(row[invLinkIndex] || "").trim();
+        } else {
+            // Check all columns for something starting with http
+            for (let c = 0; c < row.length; c++) {
+                const val = String(row[c] || "").trim();
+                if (val.startsWith('http')) {
+                    link = val;
+                    break;
+                }
+            }
+        }
+        
+        if (equipo || serie) {
+            inventarioData.push({ equipo, serie, link, rowData: row, rowIndex: i - 1 });
         }
     }
 }
@@ -141,13 +224,47 @@ manualCertInput.addEventListener('change', (e) => {
     reader.readAsArrayBuffer(file);
 });
 
+manualInventarioInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        processInventarioWorkbook(wb);
+        document.getElementById('inventarioLoadedMsg').classList.remove('hidden');
+        
+        const activeLi = document.querySelector('.equipment-list li.active');
+        if (activeLi) activeLi.click(); // re-click to refresh details
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+// Dynamic column indices for the main list
+let eqIndex = 0;
+let serIndex = 2;
+let imgIndex = 6;
+
 function loadSheet(sheetName) {
     const data = sheetsData[sheetName];
     if (!data || data.length === 0) return;
 
     // Assuming first row is headers
-    headers = data[0];
+    headers = data[0] || [];
     currentSheetData = data.slice(1); // skip headers
+    
+    // Dynamically find indices based on headers
+    eqIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
+    if (eqIndex === -1) eqIndex = 0; // fallback
+    
+    serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('serie'));
+    if (serIndex === -1) serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('sn'));
+    if (serIndex === -1) serIndex = 2; // fallback
+    
+    imgIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'imagen');
+    if (imgIndex === -1) imgIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('imagen'));
+    if (imgIndex === -1) imgIndex = 6; // fallback
     
     // Clear search and results
     searchInput.value = '';
@@ -176,12 +293,21 @@ function filterList(searchTerm) {
         return;
     }
     
-    const isSerie = searchType.value === 'serie';
-    const searchColIndex = isSerie ? 2 : 0; // Col C or Col A
+    const type = searchType.value;
     
     const matches = currentSheetData.filter(row => {
-        const cellVal = row[searchColIndex] ? String(row[searchColIndex]).toLowerCase() : "";
-        return cellVal.includes(searchTerm.toLowerCase());
+        const valA = row[eqIndex] ? String(row[eqIndex]).toLowerCase() : "";
+        const valC = row[serIndex] ? String(row[serIndex]).toLowerCase() : "";
+        const s = searchTerm.toLowerCase();
+        
+        if (type === 'equipo') {
+            return valA.includes(s);
+        } else if (type === 'serie') {
+            return valC.includes(s);
+        } else {
+            // ambos
+            return valA.includes(s) || valC.includes(s);
+        }
     });
     
     renderList(matches, searchTerm);
@@ -189,27 +315,37 @@ function filterList(searchTerm) {
 
 function renderList(rows, highlightTerm = "") {
     equipmentList.innerHTML = '';
-    const isSerie = searchType.value === 'serie';
-    const mainColIndex = isSerie ? 2 : 0;
-    const subColIndex = isSerie ? 0 : 2;
+    const type = searchType.value;
+    const isSerie = type === 'serie';
+    const mainColIndex = isSerie ? serIndex : eqIndex;
+    const subColIndex = isSerie ? eqIndex : serIndex;
 
     rows.forEach(row => {
-        const mainVal = String(row[mainColIndex]);
-        if (!mainVal || mainVal === 'undefined') return;
+        let mainVal = String(row[mainColIndex] || "");
+        let subVal = String(row[subColIndex] || "");
+        
+        if (!mainVal && !subVal) return;
+        if (!mainVal) mainVal = "(Sin datos)";
 
         const li = document.createElement('li');
         
         // Highlight matching part if searching
         let displayHTML = mainVal;
+        let subHTMLText = subVal;
+
         if (highlightTerm) {
             const regex = new RegExp(`(${highlightTerm})`, "gi");
-            displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
+            if (type === 'ambos') {
+                displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
+                subHTMLText = subHTMLText.replace(regex, "<strong>$1</strong>");
+            } else {
+                displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
+            }
         }
         
-        const subVal = String(row[subColIndex]);
         let subHTML = '';
         if (subVal && subVal !== 'undefined') {
-            subHTML = `<span class="sub-info">${isSerie ? 'Equipo: ' : 'Serie: '} ${subVal}</span>`;
+            subHTML = `<span class="sub-info">${isSerie ? 'Equipo: ' : 'Serie: '} ${subHTMLText}</span>`;
         }
 
         li.innerHTML = displayHTML + subHTML;
@@ -234,19 +370,63 @@ function showResults(row) {
         if (!header) return; // skip empty headers
         const value = row[index];
         if (value !== undefined && value !== "") {
+            let valueHTML = `<span class="detail-value">${value}</span>`;
+            
+            // Si el valor es un enlace, mostrar un pequeño botón en lugar del texto completo
+            if (String(value).trim().startsWith('http')) {
+                valueHTML = `<a href="${String(value).trim()}" target="_blank" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 0.2rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #3b82f6;">🔗 Abrir Enlace</a>`;
+            }
+            
             const div = document.createElement('div');
             div.className = 'detail-item';
             div.innerHTML = `
                 <span class="detail-label">${header}</span>
-                <span class="detail-value">${value}</span>
+                ${valueHTML}
             `;
             detailsGrid.appendChild(div);
         }
     });
 
-    // Check for certificate and extra data
-    const mainEquipo = String(row[0] || "").trim().toLowerCase(); // Col A
-    const mainSerie = String(row[2] || "").trim().toLowerCase();  // Col C
+    // Check for inventario
+    certInventarioButton.classList.add('hidden');
+    certInventarioButton.href = "#";
+    inventarioDataSection.classList.add('hidden');
+    inventarioDetailsGrid.innerHTML = '';
+    
+    const mainEquipo = String(row[eqIndex] || "").trim().toLowerCase();
+    const mainSerie = String(row[serIndex] || "").trim().toLowerCase();
+
+    if (inventarioData.length > 0) {
+        const invMatch = inventarioData.find(c => 
+            (c.serie !== "" && mainSerie !== "" && c.serie === mainSerie) ||
+            (c.equipo !== "" && mainEquipo !== "" && c.equipo === mainEquipo)
+        );
+        
+        if (invMatch) {
+            inventarioDataSection.classList.remove('hidden');
+            
+            // Populate inventario details
+            inventarioHeaders.forEach((header, index) => {
+                if (!header) return; // skip empty headers
+                const value = invMatch.rowData[index];
+                if (value !== undefined && value !== "") {
+                    let valueHTML = `<span class="detail-value">${value}</span>`;
+                    if (String(value).trim().startsWith('http')) {
+                        valueHTML = `<a href="${String(value).trim()}" target="_blank" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 0.2rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #a855f7;">🔗 Abrir Enlace</a>`;
+                    }
+                    const div = document.createElement('div');
+                    div.className = 'detail-item';
+                    div.innerHTML = `<span class="detail-label">${header}</span>${valueHTML}`;
+                    inventarioDetailsGrid.appendChild(div);
+                }
+            });
+            
+            if (invMatch.link) {
+                certInventarioButton.href = invMatch.link;
+                certInventarioButton.classList.remove('hidden');
+            }
+        }
+    }
     
     // First check local storage for a manually added link
     const localKey = `cert_${mainEquipo}_${mainSerie}`;
@@ -262,6 +442,39 @@ function showResults(row) {
             if (!certLink && match.link) {
                 certLink = match.link;
             }
+        }
+    }
+
+    // QR Code generation
+    qrCodeContainer.classList.add('hidden');
+    qrcodeElement.innerHTML = '';
+    
+    let finalLinkForQr = "";
+    if (certLink) finalLinkForQr = certLink;
+    else if (typeof invMatch !== 'undefined' && invMatch && invMatch.link) finalLinkForQr = invMatch.link;
+    else {
+        for (let i = 0; i < row.length; i++) {
+            if (String(row[i]).trim().startsWith('http')) {
+                finalLinkForQr = String(row[i]).trim();
+                break;
+            }
+        }
+    }
+
+    if (finalLinkForQr && typeof QRCode !== 'undefined') {
+        qrCodeContainer.classList.remove('hidden');
+        if (qrCodeInstance) {
+            qrCodeInstance.clear();
+            qrCodeInstance.makeCode(finalLinkForQr);
+        } else {
+            qrCodeInstance = new QRCode(qrcodeElement, {
+                text: finalLinkForQr,
+                width: 150,
+                height: 150,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.M
+            });
         }
     }
 
@@ -303,49 +516,37 @@ function showResults(row) {
                     let parsedFabricante = inputFabricante.value;
                     let parsedModelo = inputModelo.value;
                     let isParsed = false;
+                    // Limpiar viñetas y saltos de línea extraños
+                    text = text.replace(/•/g, '').replace(/[\r\n]+/g, ' ');
+
+                    // Lookahead para detener la captura cuando empiece otra palabra clave o termine el texto
+                    const lookahead = '(?=\\s*(?:modelo|marca|fabricante|(?:breve\\s+)?descripci[oó]n)\\s*[:\\-\\/]|$)';
                     
-                    const lowerText = text.toLowerCase();
+                    // Expresiones regulares súper robustas con lookahead perezoso (.*?)
+                    const fabRegex = new RegExp(`(?:fabricante|marca)[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
+                    const modRegex = new RegExp(`modelo[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
+                    const descRegex = new RegExp(`(?:breve\\s+)?descripci[oó]n[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
 
-                    // Buscar "modelo"
-                    const modIdx = lowerText.indexOf('modelo');
-                    if (modIdx !== -1) {
-                        let start = modIdx + 6;
-                        while(start < text.length && (text[start] === ':' || text[start] === ' ')) start++;
-                        let end = text.substring(start).search(/[\.\,\n\(;]/);
-                        if (end === -1) end = 40;
-                        let extracted = text.substring(start, start + end).trim();
-                        if(extracted) {
-                            parsedModelo = extracted;
-                            isParsed = true;
-                        }
-                    }
-
-                    // Buscar "fabricante" o "marca"
-                    let fabIdx = lowerText.indexOf('fabricante');
-                    if (fabIdx === -1) fabIdx = lowerText.indexOf('marca');
-                    if (fabIdx !== -1) {
-                        let offset = lowerText.substring(fabIdx).startsWith('fabricante') ? 10 : 5;
-                        let start = fabIdx + offset;
-                        // Omitir caracteres como : / o espacios inmediatos
-                        while(start < text.length && /[:\/\s]/.test(text[start])) start++;
-                        let end = text.substring(start).search(/[\.\,\n\(;]/);
-                        if (end === -1) end = 50;
-                        let extracted = text.substring(start, start + end).trim();
-                        if(extracted) {
-                            parsedFabricante = extracted;
-                            isParsed = true;
-                        }
-                    }
-
-                    // Buscar "descripcion"
-                    let descText = text;
-                    let descIdx = lowerText.indexOf('descripción');
-                    if (descIdx === -1) descIdx = lowerText.indexOf('descripcion');
-                    if (descIdx !== -1) {
-                        let start = descIdx + 11;
-                        while(start < text.length && /[:\s]/.test(text[start])) start++;
-                        descText = text.substring(start).trim();
+                    const fabMatch = text.match(fabRegex);
+                    if (fabMatch && fabMatch[1]) {
+                        parsedFabricante = fabMatch[1].trim();
                         isParsed = true;
+                    }
+
+                    const modMatch = text.match(modRegex);
+                    if (modMatch && modMatch[1]) {
+                        parsedModelo = modMatch[1].trim();
+                        isParsed = true;
+                    }
+
+                    let descText = text;
+                    const descMatch = text.match(descRegex);
+                    if (descMatch && descMatch[1]) {
+                        descText = descMatch[1].trim();
+                        isParsed = true;
+                    } else if (isParsed) {
+                        // Si no hay etiqueta explícita de descripción, limpiar el texto pegado
+                        descText = text.replace(fabRegex, '').replace(modRegex, '').trim();
                     }
 
                     // Aplicar los cambios solo si detectó al menos una palabra clave
@@ -418,8 +619,8 @@ function showResults(row) {
         };
     }
 
-    // Handle Image (Column G is index 6)
-    const imageName = row[6];
+    // Handle Image
+    const imageName = row[imgIndex];
     
     // Clear previous image listeners and styles
     equipmentImage.onclick = null;
@@ -427,10 +628,14 @@ function showResults(row) {
     equipmentImage.title = "";
 
     if (imageName && String(imageName).trim() !== "") {
-        let imgPath = `Imagenes/${String(imageName).trim()}`;
+        let imgStr = String(imageName).trim();
+        let imgPath = imgStr;
         
-        if (!imgPath.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
-            imgPath += '.jpg';
+        if (!imgStr.toLowerCase().startsWith('http')) {
+            imgPath = `Imagenes/${imgStr}`;
+            if (!imgPath.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
+                imgPath += '.jpg';
+            }
         }
 
         equipmentImage.src = imgPath;
@@ -472,6 +677,140 @@ function showResults(row) {
         noImageText.classList.remove('hidden');
     }
 }
+
+// Export to Excel
+exportExcelBtn.addEventListener('click', () => {
+    if (!inventarioRawData || inventarioRawData.length === 0) {
+        alert("No hay datos de Inventario cargados para exportar. Por favor, carga el Inventario primero (Botón 3).");
+        return;
+    }
+
+    // Identificar qué columnas de Lista Principal son válidas (forzar nombre 'Imagen' para la columna de imagen si estaba vacía)
+    const validIndices = [];
+    const cleanHeaders = [];
+    if (headers && headers.length > 0) {
+        headers.forEach((h, i) => {
+            let headerName = h && String(h).trim() !== "" ? String(h).trim() : "";
+            
+            // Si esta es la columna de la imagen y no tiene nombre, forzamos "Imagen"
+            if (i === imgIndex && headerName === "") {
+                headerName = "Imagen";
+            }
+
+            if (headerName !== "") {
+                validIndices.push(i);
+                cleanHeaders.push(headerName);
+            } else if (i === imgIndex) {
+                // Siempre incluir la columna de imagen incluso si el nombre falló
+                validIndices.push(i);
+                cleanHeaders.push("Imagen");
+            }
+        });
+    }
+
+    // Preparar encabezados combinados
+    const exportHeaders = [
+        ...inventarioHeaders, 
+        ...cleanHeaders, 
+        "Tipo Extra", "Fabricante Extra", "Modelo Extra", "Enlace Certificado", "Descripción Adicional"
+    ];
+    const exportData = [exportHeaders];
+
+    // Índices para buscar coincidencias en Inventario
+    let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
+    if (invEqIndex === -1) invEqIndex = 1;
+    let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
+    if (invSerIndex === -1) invSerIndex = 3;
+
+    // Índices para certData (Etiquetas Lab)
+    let certEqIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo')) : -1;
+    if (certEqIndex === -1) certEqIndex = 1;
+    let certSerIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie')) : -1;
+    if (certSerIndex === -1) certSerIndex = 3;
+
+    inventarioRawData.forEach(invRow => {
+        const invEq = String(invRow[invEqIndex] || "").trim().toLowerCase();
+        const invSer = String(invRow[invSerIndex] || "").trim().toLowerCase();
+
+        let mainMatch = null;
+
+        // Buscar coincidencia en la Lista Principal
+        if (currentSheetData && currentSheetData.length > 0) {
+            mainMatch = currentSheetData.find(m => {
+                const mEq = String(m[eqIndex] || "").trim().toLowerCase();
+                const mSer = String(m[serIndex] || "").trim().toLowerCase();
+                
+                if (invSer !== "" && mSer !== "" && invSer === mSer) return true;
+                if (invEq !== "" && mEq !== "" && invEq === mEq) return true;
+                return false;
+            });
+        }
+
+        // Buscar coincidencia en Etiquetas Lab (certRawData)
+        let certMatch = null;
+        if (certRawData && certRawData.length > 0) {
+            certMatch = certRawData.find(c => {
+                const cEq = String(c[certEqIndex] || "").trim().toLowerCase();
+                const cSer = String(c[certSerIndex] || "").trim().toLowerCase();
+                
+                if (invSer !== "" && cSer !== "" && invSer === cSer) return true;
+                if (invEq !== "" && cEq !== "" && invEq === cEq) return true;
+                return false;
+            });
+        }
+
+        // Construir la nueva fila base (Inventario)
+        let newRow = [];
+        inventarioHeaders.forEach((h, i) => {
+            newRow.push(invRow[i] !== undefined ? invRow[i] : "");
+        });
+        
+        // Agregar info de Lista Principal
+        validIndices.forEach(idx => {
+            newRow.push(mainMatch && mainMatch[idx] !== undefined ? mainMatch[idx] : "");
+        });
+
+        // Extraer datos de la lista azul y manuales
+        let tipo = certMatch ? (certMatch[2] || "") : "";
+        let fabricante = certMatch ? (certMatch[4] || "") : "";
+        let modelo = certMatch ? (certMatch[5] || "") : "";
+        let link = certMatch ? (certMatch[6] || "") : "";
+        let descripcion = "";
+
+        // Revisar localStorage
+        const localExtraKey = `extra_${invEq}_${invSer}`;
+        try {
+            const savedStr = localStorage.getItem(localExtraKey);
+            if (savedStr) {
+                const parsed = JSON.parse(savedStr);
+                descripcion = parsed.descripcion || "";
+                if (parsed.fabricante) fabricante = parsed.fabricante;
+                if (parsed.modelo) modelo = parsed.modelo;
+            }
+        } catch(e) {}
+        
+        const localCertKey = `cert_${invEq}_${invSer}`;
+        let manualLink = localStorage.getItem(localCertKey);
+        if (manualLink) {
+            link = manualLink;
+        }
+
+        newRow.push(tipo);
+        newRow.push(fabricante);
+        newRow.push(modelo);
+        newRow.push(link);
+        newRow.push(descripcion);
+
+        exportData.push(newRow);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventario_Exportado");
+    
+    const dateString = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `Inventario_Exportado_${dateString}.xlsx`);
+});
 
 // Start app
 window.addEventListener('DOMContentLoaded', init);
