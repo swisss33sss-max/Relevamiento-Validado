@@ -49,6 +49,28 @@ const inputFabricante = document.getElementById('inputFabricante');
 const inputModelo = document.getElementById('inputModelo');
 const inputDescripcion = document.getElementById('inputDescripcion');
 
+// Responsive UI elements
+const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+const sidebarOverlay = document.getElementById('sidebarOverlay');
+const sidebarPanel = document.getElementById('sidebarPanel');
+const resultCount = document.getElementById('resultCount');
+
+// Drawer helpers for mobile devices
+function openSidebar() {
+    if (sidebarPanel) sidebarPanel.classList.add('open');
+    if (sidebarOverlay) sidebarOverlay.classList.add('active');
+}
+
+function closeSidebar() {
+    if (sidebarPanel) sidebarPanel.classList.remove('open');
+    if (sidebarOverlay) sidebarOverlay.classList.remove('active');
+}
+
+if (mobileMenuToggle) mobileMenuToggle.addEventListener('click', openSidebar);
+if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
+if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+
 // Initialization
 async function init() {
     try {
@@ -64,6 +86,8 @@ async function init() {
             const certBuf = await certRes.arrayBuffer();
             const certWb = XLSX.read(certBuf, { type: 'array' });
             processCertWorkbook(certWb);
+            const msg = document.getElementById('certLoadedMsg');
+            if (msg) msg.classList.remove('hidden');
         } catch (e) {
             console.warn("No se pudo cargar 'Etiquetas Laboratorio.xls' automáticamente.", e);
         }
@@ -74,7 +98,8 @@ async function init() {
             const invBuf = await invRes.arrayBuffer();
             const invWb = XLSX.read(invBuf, { type: 'array' });
             processInventarioWorkbook(invWb);
-            document.getElementById('inventarioLoadedMsg').classList.remove('hidden');
+            const msg = document.getElementById('inventarioLoadedMsg');
+            if (msg) msg.classList.remove('hidden');
         } catch (e) {
             console.warn("No se pudo cargar 'Inventario Catamarca.xlsx' automáticamente.", e);
         }
@@ -83,10 +108,10 @@ async function init() {
         console.error("Error loading Excel file:", error);
         if (window.location.protocol === 'file:') {
             // Show fallback for local file:// execution
-            localFileWarning.classList.remove('hidden');
-            sheetSelect.innerHTML = '<option value="">Requiere archivo manual...</option>';
+            if (localFileWarning) localFileWarning.classList.remove('hidden');
+            if (sheetSelect) sheetSelect.innerHTML = '<option value="">Requiere archivo manual...</option>';
         } else {
-            sheetSelect.innerHTML = '<option value="">Error cargando archivo</option>';
+            if (sheetSelect) sheetSelect.innerHTML = '<option value="">Error cargando archivo</option>';
         }
     }
 }
@@ -109,7 +134,7 @@ function processWorkbook(wb) {
 
     sheetSelect.disabled = false;
     searchInput.disabled = false;
-    localFileWarning.classList.add('hidden');
+    if (localFileWarning) localFileWarning.classList.add('hidden');
     loadSheet(sheetSelect.value);
 }
 
@@ -154,11 +179,11 @@ function processInventarioWorkbook(wb) {
         inventarioHeaders = data[0];
     }
     
-    // Determine indices for "Equipo" and "Serie" dynamically or use assumptions
+    // Determine indices for "Equipo" and "Serie" dynamically
     let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
-    if (invEqIndex === -1) invEqIndex = 1; // Default to 'Campo/equipo' which is column B (index 1)
+    if (invEqIndex === -1) invEqIndex = 1; // Default to 'Campo/equipo'
     let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
-    if (invSerIndex === -1) invSerIndex = 3; // Default to 'N Serie' which is column D (index 3)
+    if (invSerIndex === -1) invSerIndex = 3; // Default to 'N Serie'
 
     let invLinkIndex = inventarioHeaders.findIndex(h => {
         const lowerH = String(h).toLowerCase();
@@ -193,7 +218,7 @@ function processInventarioWorkbook(wb) {
     }
 }
 
-// Event Listeners
+// Event Listeners for File Inputs
 manualFileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -216,7 +241,8 @@ manualCertInput.addEventListener('change', (e) => {
         const data = new Uint8Array(evt.target.result);
         const wb = XLSX.read(data, { type: 'array' });
         processCertWorkbook(wb);
-        document.getElementById('certLoadedMsg').classList.remove('hidden');
+        const msg = document.getElementById('certLoadedMsg');
+        if (msg) msg.classList.remove('hidden');
         
         const activeLi = document.querySelector('.equipment-list li.active');
         if (activeLi) activeLi.click(); // re-click to refresh details
@@ -233,7 +259,8 @@ manualInventarioInput.addEventListener('change', (e) => {
         const data = new Uint8Array(evt.target.result);
         const wb = XLSX.read(data, { type: 'array' });
         processInventarioWorkbook(wb);
-        document.getElementById('inventarioLoadedMsg').classList.remove('hidden');
+        const msg = document.getElementById('inventarioLoadedMsg');
+        if (msg) msg.classList.remove('hidden');
         
         const activeLi = document.querySelector('.equipment-list li.active');
         if (activeLi) activeLi.click(); // re-click to refresh details
@@ -250,21 +277,20 @@ function loadSheet(sheetName) {
     const data = sheetsData[sheetName];
     if (!data || data.length === 0) return;
 
-    // Assuming first row is headers
     headers = data[0] || [];
     currentSheetData = data.slice(1); // skip headers
     
     // Dynamically find indices based on headers
     eqIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
-    if (eqIndex === -1) eqIndex = 0; // fallback
+    if (eqIndex === -1) eqIndex = 0;
     
     serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('serie'));
     if (serIndex === -1) serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('sn'));
-    if (serIndex === -1) serIndex = 2; // fallback
+    if (serIndex === -1) serIndex = 2;
     
     imgIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'imagen');
     if (imgIndex === -1) imgIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('imagen'));
-    if (imgIndex === -1) imgIndex = 6; // fallback
+    if (imgIndex === -1) imgIndex = 6;
     
     // Clear search and results
     searchInput.value = '';
@@ -277,12 +303,11 @@ sheetSelect.addEventListener('change', (e) => {
 });
 
 searchType.addEventListener('change', () => {
-    // Re-render and re-filter based on the new search type
     const val = searchInput.value;
     filterList(val);
 });
 
-searchInput.addEventListener('input', function(e) {
+searchInput.addEventListener('input', function() {
     const val = this.value;
     filterList(val);
 });
@@ -305,7 +330,6 @@ function filterList(searchTerm) {
         } else if (type === 'serie') {
             return valC.includes(s);
         } else {
-            // ambos
             return valA.includes(s) || valC.includes(s);
         }
     });
@@ -320,6 +344,12 @@ function renderList(rows, highlightTerm = "") {
     const mainColIndex = isSerie ? serIndex : eqIndex;
     const subColIndex = isSerie ? eqIndex : serIndex;
 
+    // Update Result Count Badge
+    if (resultCount) {
+        resultCount.textContent = rows.length;
+        resultCount.classList.remove('hidden');
+    }
+
     rows.forEach(row => {
         let mainVal = String(row[mainColIndex] || "");
         let subVal = String(row[subColIndex] || "");
@@ -329,7 +359,6 @@ function renderList(rows, highlightTerm = "") {
 
         const li = document.createElement('li');
         
-        // Highlight matching part if searching
         let displayHTML = mainVal;
         let subHTMLText = subVal;
 
@@ -351,10 +380,10 @@ function renderList(rows, highlightTerm = "") {
         li.innerHTML = displayHTML + subHTML;
         
         li.addEventListener('click', () => {
-            // Remove active class from all
             document.querySelectorAll('.equipment-list li').forEach(el => el.classList.remove('active'));
             li.classList.add('active');
             showResults(row);
+            closeSidebar(); // Auto-close drawer on mobile when an item is selected
         });
 
         equipmentList.appendChild(li);
@@ -367,14 +396,13 @@ function showResults(row) {
     // Populate details grid
     detailsGrid.innerHTML = '';
     headers.forEach((header, index) => {
-        if (!header) return; // skip empty headers
+        if (!header) return;
         const value = row[index];
         if (value !== undefined && value !== "") {
             let valueHTML = `<span class="detail-value">${value}</span>`;
             
-            // Si el valor es un enlace, mostrar un pequeño botón en lugar del texto completo
             if (String(value).trim().startsWith('http')) {
-                valueHTML = `<a href="${String(value).trim()}" target="_blank" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 0.2rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #3b82f6;">🔗 Abrir Enlace</a>`;
+                valueHTML = `<a href="${String(value).trim()}" target="_blank" rel="noopener" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 0.2rem 0.6rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #3b82f6; display: inline-block;">🔗 Abrir Enlace</a>`;
             }
             
             const div = document.createElement('div');
@@ -396,8 +424,10 @@ function showResults(row) {
     const mainEquipo = String(row[eqIndex] || "").trim().toLowerCase();
     const mainSerie = String(row[serIndex] || "").trim().toLowerCase();
 
+    let invMatch = undefined;
+
     if (inventarioData.length > 0) {
-        const invMatch = inventarioData.find(c => 
+        invMatch = inventarioData.find(c => 
             (c.serie !== "" && mainSerie !== "" && c.serie === mainSerie) ||
             (c.equipo !== "" && mainEquipo !== "" && c.equipo === mainEquipo)
         );
@@ -405,14 +435,13 @@ function showResults(row) {
         if (invMatch) {
             inventarioDataSection.classList.remove('hidden');
             
-            // Populate inventario details
             inventarioHeaders.forEach((header, index) => {
-                if (!header) return; // skip empty headers
+                if (!header) return;
                 const value = invMatch.rowData[index];
                 if (value !== undefined && value !== "") {
                     let valueHTML = `<span class="detail-value">${value}</span>`;
                     if (String(value).trim().startsWith('http')) {
-                        valueHTML = `<a href="${String(value).trim()}" target="_blank" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 0.2rem 0.6rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #a855f7;">🔗 Abrir Enlace</a>`;
+                        valueHTML = `<a href="${String(value).trim()}" target="_blank" rel="noopener" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 0.2rem 0.6rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #a855f7; display: inline-block;">🔗 Abrir Enlace</a>`;
                     }
                     const div = document.createElement('div');
                     div.className = 'detail-item';
@@ -508,7 +537,6 @@ function showResults(row) {
             inputModelo.value = modelo;
             inputDescripcion.value = descripcion;
             
-            // Inteligencia de Pegado solicitada por el usuario
             const handlePaste = (e) => {
                 setTimeout(() => {
                     const val = e.target.value;
@@ -516,13 +544,11 @@ function showResults(row) {
                     let parsedFabricante = inputFabricante.value;
                     let parsedModelo = inputModelo.value;
                     let isParsed = false;
-                    // Limpiar viñetas y saltos de línea extraños
+
                     text = text.replace(/•/g, '').replace(/[\r\n]+/g, ' ');
 
-                    // Lookahead para detener la captura cuando empiece otra palabra clave o termine el texto
                     const lookahead = '(?=\\s*(?:modelo|marca|fabricante|(?:breve\\s+)?descripci[oó]n)\\s*[:\\-\\/]|$)';
                     
-                    // Expresiones regulares súper robustas con lookahead perezoso (.*?)
                     const fabRegex = new RegExp(`(?:fabricante|marca)[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
                     const modRegex = new RegExp(`modelo[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
                     const descRegex = new RegExp(`(?:breve\\s+)?descripci[oó]n[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
@@ -545,23 +571,19 @@ function showResults(row) {
                         descText = descMatch[1].trim();
                         isParsed = true;
                     } else if (isParsed) {
-                        // Si no hay etiqueta explícita de descripción, limpiar el texto pegado
                         descText = text.replace(fabRegex, '').replace(modRegex, '').trim();
                     }
 
-                    // Aplicar los cambios solo si detectó al menos una palabra clave
                     if (isParsed) {
                         if (parsedFabricante) inputFabricante.value = parsedFabricante;
                         if (parsedModelo) inputModelo.value = parsedModelo;
                         
-                        // Limitar a 100 palabras exactas
                         let words = descText.split(/\s+/);
                         if (words.length > 100) {
                             descText = words.slice(0, 100).join(' ') + '...';
                         }
                         inputDescripcion.value = descText;
 
-                        // Si el usuario pegó en otro lado, limpiamos el campo para que quede ordenado
                         if (e.target.id !== 'inputDescripcion') {
                             e.target.value = parsedFabricante || parsedModelo;
                             setTimeout(() => {
@@ -622,7 +644,6 @@ function showResults(row) {
     // Handle Image
     const imageName = row[imgIndex];
     
-    // Clear previous image listeners and styles
     equipmentImage.onclick = null;
     equipmentImage.style.cursor = 'default';
     equipmentImage.title = "";
@@ -642,17 +663,13 @@ function showResults(row) {
         equipmentImage.classList.remove('hidden');
         noImageText.classList.add('hidden');
         
-        // Setup internet search on click
         equipmentImage.style.cursor = 'pointer';
-        equipmentImage.style.transition = 'transform 0.2s, box-shadow 0.2s';
         
         equipmentImage.onmouseover = () => {
             equipmentImage.style.transform = 'scale(1.02)';
-            equipmentImage.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.3)';
         };
         equipmentImage.onmouseout = () => {
             equipmentImage.style.transform = 'scale(1)';
-            equipmentImage.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.2)';
         };
 
         const hasExtraData = (searchData && searchData.tipo) || fabricante || modelo || descripcion;
@@ -685,14 +702,12 @@ exportExcelBtn.addEventListener('click', () => {
         return;
     }
 
-    // Identificar qué columnas de Lista Principal son válidas (forzar nombre 'Imagen' para la columna de imagen si estaba vacía)
     const validIndices = [];
     const cleanHeaders = [];
     if (headers && headers.length > 0) {
         headers.forEach((h, i) => {
             let headerName = h && String(h).trim() !== "" ? String(h).trim() : "";
             
-            // Si esta es la columna de la imagen y no tiene nombre, forzamos "Imagen"
             if (i === imgIndex && headerName === "") {
                 headerName = "Imagen";
             }
@@ -701,14 +716,12 @@ exportExcelBtn.addEventListener('click', () => {
                 validIndices.push(i);
                 cleanHeaders.push(headerName);
             } else if (i === imgIndex) {
-                // Siempre incluir la columna de imagen incluso si el nombre falló
                 validIndices.push(i);
                 cleanHeaders.push("Imagen");
             }
         });
     }
 
-    // Preparar encabezados combinados
     const exportHeaders = [
         ...inventarioHeaders, 
         ...cleanHeaders, 
@@ -716,13 +729,11 @@ exportExcelBtn.addEventListener('click', () => {
     ];
     const exportData = [exportHeaders];
 
-    // Índices para buscar coincidencias en Inventario
     let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
     if (invEqIndex === -1) invEqIndex = 1;
     let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
     if (invSerIndex === -1) invSerIndex = 3;
 
-    // Índices para certData (Etiquetas Lab)
     let certEqIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo')) : -1;
     if (certEqIndex === -1) certEqIndex = 1;
     let certSerIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie')) : -1;
@@ -734,7 +745,6 @@ exportExcelBtn.addEventListener('click', () => {
 
         let mainMatch = null;
 
-        // Buscar coincidencia en la Lista Principal
         if (currentSheetData && currentSheetData.length > 0) {
             mainMatch = currentSheetData.find(m => {
                 const mEq = String(m[eqIndex] || "").trim().toLowerCase();
@@ -746,7 +756,6 @@ exportExcelBtn.addEventListener('click', () => {
             });
         }
 
-        // Buscar coincidencia en Etiquetas Lab (certRawData)
         let certMatch = null;
         if (certRawData && certRawData.length > 0) {
             certMatch = certRawData.find(c => {
@@ -759,25 +768,21 @@ exportExcelBtn.addEventListener('click', () => {
             });
         }
 
-        // Construir la nueva fila base (Inventario)
         let newRow = [];
         inventarioHeaders.forEach((h, i) => {
             newRow.push(invRow[i] !== undefined ? invRow[i] : "");
         });
         
-        // Agregar info de Lista Principal
         validIndices.forEach(idx => {
             newRow.push(mainMatch && mainMatch[idx] !== undefined ? mainMatch[idx] : "");
         });
 
-        // Extraer datos de la lista azul y manuales
         let tipo = certMatch ? (certMatch[2] || "") : "";
         let fabricante = certMatch ? (certMatch[4] || "") : "";
         let modelo = certMatch ? (certMatch[5] || "") : "";
         let link = certMatch ? (certMatch[6] || "") : "";
         let descripcion = "";
 
-        // Revisar localStorage
         const localExtraKey = `extra_${invEq}_${invSer}`;
         try {
             const savedStr = localStorage.getItem(localExtraKey);

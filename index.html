@@ -2,165 +2,250 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestion de Equipamiento</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Include SheetJS from CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>Gestión de Equipamiento - Laboratorio</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Third Party Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Mobile Backdrop Overlay -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
     <div class="app-container">
-        <header>
-            <h1>Gestion de Equipamiento</h1>
-            <p>Selecciona una hoja y explora tus equipos.</p>
-            <div id="localFileWarning" class="hidden" style="margin-top: 1rem; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
-                <p style="color: #fca5a5; margin-bottom: 0; font-size: 0.9rem;">Estás abriendo la aplicación localmente sin servidor. Por seguridad, el navegador no puede cargar los Excel automáticamente. Por favor, cárgalos manualmente a continuación.</p>
+        <!-- Top Navbar & Header -->
+        <header class="app-header">
+            <div class="nav-bar">
+                <div class="brand">
+                    <div class="brand-icon">🔬</div>
+                    <div class="brand-text">
+                        <h1>Gestión de Equipamiento</h1>
+                        <p class="subtitle">Laboratorio Catamarca</p>
+                    </div>
+                </div>
+
+                <div class="nav-actions">
+                    <div class="status-messages">
+                        <div id="certLoadedMsg" class="status-badge badge-green hidden">
+                            <span class="badge-dot"></span> Etiquetas Lab
+                        </div>
+                        <div id="inventarioLoadedMsg" class="status-badge badge-purple hidden">
+                            <span class="badge-dot"></span> Inventario
+                        </div>
+                    </div>
+
+                    <button id="mobileMenuToggle" class="mobile-toggle-btn" aria-label="Abrir Menú de Selección">
+                        <span class="toggle-icon">🔍</span>
+                        <span class="toggle-text">Equipos</span>
+                    </button>
+                </div>
             </div>
-            
-            <div id="manualLoaders" style="margin-top: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
-                <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                    <label class="file-btn" style="background: #ef4444; padding: 0.8rem 1.5rem; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
-                        1. Cargar Lista Principal
-                        <input type="file" id="manualFileInput" accept=".xlsx, .xls" style="display: none;">
+
+            <!-- Local File Execution Warning -->
+            <div id="localFileWarning" class="alert alert-danger hidden">
+                <div class="alert-content">
+                    <span class="alert-icon">⚠️</span>
+                    <p><strong>Modo Local detectado:</strong> El navegador requiere que selecciones los archivos Excel manualmente utilizando los botones inferiores.</p>
+                </div>
+            </div>
+
+            <!-- Main Toolbar -->
+            <div class="toolbar glass-panel">
+                <div class="toolbar-group">
+                    <label class="btn btn-red" title="Cargar archivo Excel con la lista de equipos">
+                        <span class="btn-icon">📁</span>
+                        <span class="btn-label">1. Lista Principal</span>
+                        <input type="file" id="manualFileInput" accept=".xlsx, .xls" class="hidden-input">
                     </label>
                     
-                    <label class="file-btn" style="background: #3b82f6; padding: 0.8rem 1.5rem; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
-                        2. Cargar Etiquetas Lab
-                        <input type="file" id="manualCertInput" accept=".xlsx, .xls" style="display: none;">
+                    <label class="btn btn-blue" title="Cargar certificado / etiquetas de laboratorio">
+                        <span class="btn-icon">🏷️</span>
+                        <span class="btn-label">2. Etiquetas Lab</span>
+                        <input type="file" id="manualCertInput" accept=".xlsx, .xls" class="hidden-input">
                     </label>
 
-                    <label class="file-btn" style="background: #a855f7; padding: 0.8rem 1.5rem; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">
-                        3. Cargar Inventario
-                        <input type="file" id="manualInventarioInput" accept=".xlsx, .xls" style="display: none;">
+                    <label class="btn btn-purple" title="Cargar archivo de inventario">
+                        <span class="btn-icon">📦</span>
+                        <span class="btn-label">3. Inventario</span>
+                        <input type="file" id="manualInventarioInput" accept=".xlsx, .xls" class="hidden-input">
                     </label>
 
-                    <button id="exportExcelBtn" class="file-btn" style="background: #10b981; color: white; border: none; cursor: pointer; padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: bold; transition: transform 0.2s;">
-                        📊 Exportar a Excel
+                    <button id="exportExcelBtn" class="btn btn-green" title="Exportar reporte consolidado en Excel">
+                        <span class="btn-icon">📊</span>
+                        <span class="btn-label">Exportar Excel</span>
                     </button>
 
-                    <button id="cleanDuplicatesBtn" class="file-btn hidden" style="background: #f59e0b; color: white; border: none; cursor: pointer; padding: 0.8rem 1.5rem; border-radius: 8px; font-weight: bold;">
-                        ✨ Limpiar Duplicados de Etiquetas
+                    <button id="cleanDuplicatesBtn" class="btn btn-orange hidden">
+                        <span class="btn-icon">✨</span>
+                        <span class="btn-label">Limpiar Duplicados</span>
                     </button>
-
-                    <div id="certLoadedMsg" class="hidden" style="display: flex; align-items: center; color: #10b981; font-weight: bold; background: rgba(16, 185, 129, 0.1); padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #10b981;">
-                        ✓ Etiquetas Lab Cargadas
-                    </div>
-
-                    <div id="inventarioLoadedMsg" class="hidden" style="display: flex; align-items: center; color: #a855f7; font-weight: bold; background: rgba(168, 85, 247, 0.1); padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid #a855f7;">
-                        ✓ Inventario Cargado
-                    </div>
                 </div>
             </div>
         </header>
-        
+
+        <!-- Main Layout Split Grid -->
         <main class="main-layout">
-            <aside class="sidebar glass-panel">
-                <div class="control-group">
-                    <label for="sheetSelect">Hoja del Excel</label>
-                    <select id="sheetSelect" disabled>
-                        <option value="">Cargando...</option>
-                    </select>
-                </div>
-                
-                <div class="control-group">
-                    <label for="searchType">Buscar por</label>
-                    <select id="searchType">
-                        <option value="ambos">Ambos (Equipo y Serie)</option>
-                        <option value="equipo">Solo Equipo (Columna A)</option>
-                        <option value="serie">Solo Número de Serie (Columna C)</option>
-                    </select>
+            <!-- Sidebar Drawer / Panel -->
+            <aside id="sidebarPanel" class="sidebar glass-panel">
+                <div class="sidebar-header">
+                    <h2>Selección y Buscador</h2>
+                    <button id="closeSidebarBtn" class="close-sidebar-btn" aria-label="Cerrar menú">✕</button>
                 </div>
 
-                <div class="control-group search-box">
-                    <label for="searchInput">Filtrar lista</label>
-                    <input type="text" id="searchInput" placeholder="Escribe para buscar..." disabled autocomplete="off">
+                <div class="controls-container">
+                    <div class="control-group">
+                        <label for="sheetSelect">Hoja de Trabajo</label>
+                        <select id="sheetSelect" disabled>
+                            <option value="">Cargando Excel...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label for="searchType">Filtro de búsqueda</label>
+                        <select id="searchType">
+                            <option value="ambos">Ambos (Equipo y Serie)</option>
+                            <option value="equipo">Solo Equipo (Columna A)</option>
+                            <option value="serie">Solo Número de Serie (Columna C)</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group search-box">
+                        <div class="label-with-badge">
+                            <label for="searchInput">Buscar Equipo</label>
+                            <span id="resultCount" class="count-badge hidden">0</span>
+                        </div>
+                        <div class="search-input-wrapper">
+                            <input type="text" id="searchInput" placeholder="Nombre de equipo o N° Serie..." disabled autocomplete="off">
+                            <span class="search-icon">🔍</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="equipment-list-container">
+                <div class="equipment-list-container custom-scrollbar">
                     <ul id="equipmentList" class="equipment-list">
-                        <!-- List populated dynamically -->
+                        <!-- Items populated dynamically via JS -->
                     </ul>
                 </div>
             </aside>
 
-            <section id="resultsArea" class="results-area hidden glass-panel">
-                <div class="info-panel">
-                    <h2>Detalles del Equipo</h2>
+            <!-- Results View Area -->
+            <section id="resultsArea" class="results-area hidden">
+                <!-- Info Panel -->
+                <div class="info-panel glass-panel fade-in">
+                    <div class="panel-header">
+                        <h2><span class="panel-icon">📋</span> Detalles del Equipo</h2>
+                    </div>
+
                     <div id="detailsGrid" class="details-grid">
                         <!-- Content populated dynamically -->
                     </div>
 
-                    <div id="inventarioDataSection" class="hidden" style="margin-top: 1.5rem; background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 8px; border: 1px solid #374151;">
-                        <h3 style="font-size: 1rem; margin-bottom: 1rem; color: #e5e7eb; border-bottom: 1px solid #374151; padding-bottom: 0.5rem;">
-                            Datos de Inventario
+                    <!-- Inventario Section -->
+                    <div id="inventarioDataSection" class="data-section hidden">
+                        <h3 class="section-title">
+                            <span class="section-icon">📦</span> Datos de Inventario
                         </h3>
-                        <div id="inventarioDetailsGrid" class="details-grid" style="margin-bottom: 0;">
+                        <div id="inventarioDetailsGrid" class="details-grid">
                             <!-- Populated dynamically -->
                         </div>
                     </div>
 
-                    <div id="extraDataSection" style="margin-top: 1.5rem; background: rgba(255, 255, 255, 0.03); padding: 1rem; border-radius: 8px; border: 1px solid #374151;">
-                        <h3 style="font-size: 1rem; margin-bottom: 1rem; color: #e5e7eb; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #374151; padding-bottom: 0.5rem;">
-                            Datos Adicionales
-                            <button id="toggleEditDataBtn" style="background: rgba(255,255,255,0.1); border: 1px solid #4b5563; color: #d1d5db; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: background 0.2s;">✏️ Editar</button>
+                    <!-- Extra Data Section -->
+                    <div id="extraDataSection" class="data-section">
+                        <h3 class="section-title flex-between">
+                            <span><span class="section-icon">📝</span> Datos Adicionales</span>
+                            <button id="toggleEditDataBtn" class="btn-icon-small">✏️ Editar</button>
                         </h3>
                         
-                        <!-- Vista de datos -->
-                        <div id="extraDataView" class="details-grid" style="margin-bottom: 0; grid-template-columns: 1fr;">
-                            <div class="detail-item"><span class="detail-label" style="color:#9ca3af;">Fabricante</span><span class="detail-value" id="viewFabricante">-</span></div>
-                            <div class="detail-item"><span class="detail-label" style="color:#9ca3af;">Modelo</span><span class="detail-value" id="viewModelo">-</span></div>
-                            <div class="detail-item"><span class="detail-label" style="color:#9ca3af;">Descripción</span><span class="detail-value" id="viewDescripcion" style="white-space: pre-wrap;">-</span></div>
+                        <!-- Read Mode -->
+                        <div id="extraDataView" class="details-grid single-column">
+                            <div class="detail-item">
+                                <span class="detail-label">Fabricante</span>
+                                <span class="detail-value" id="viewFabricante">-</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Modelo</span>
+                                <span class="detail-value" id="viewModelo">-</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="detail-label">Descripción / Observaciones</span>
+                                <span class="detail-value desc-text" id="viewDescripcion">-</span>
+                            </div>
                         </div>
 
-                        <!-- Formulario de edición -->
-                        <div id="extraDataEdit" class="hidden" style="display: flex; flex-direction: column; gap: 0.8rem;">
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.3rem;">Fabricante</label>
-                                <input type="text" id="inputFabricante" style="width: 100%; padding: 0.6rem; border-radius: 4px; border: 1px solid #4b5563; background: rgba(31, 41, 55, 0.8); color: white; outline: none; box-sizing: border-box;">
+                        <!-- Edit Mode -->
+                        <div id="extraDataEdit" class="edit-form hidden">
+                            <div class="form-group">
+                                <label for="inputFabricante">Fabricante</label>
+                                <input type="text" id="inputFabricante" class="form-control" placeholder="Ej: Eppendorf, Brand...">
                             </div>
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.3rem;">Modelo</label>
-                                <input type="text" id="inputModelo" style="width: 100%; padding: 0.6rem; border-radius: 4px; border: 1px solid #4b5563; background: rgba(31, 41, 55, 0.8); color: white; outline: none; box-sizing: border-box;">
+                            <div class="form-group">
+                                <label for="inputModelo">Modelo</label>
+                                <input type="text" id="inputModelo" class="form-control" placeholder="Ej: Reference 2, Research Plus...">
                             </div>
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.3rem;">Descripción (Copia aquí lo que dice Lens)</label>
-                                <textarea id="inputDescripcion" rows="3" style="width: 100%; padding: 0.6rem; border-radius: 4px; border: 1px solid #4b5563; background: rgba(31, 41, 55, 0.8); color: white; resize: vertical; outline: none; box-sizing: border-box;"></textarea>
+                            <div class="form-group">
+                                <label for="inputDescripcion">Descripción / Datos pegados de Lens</label>
+                                <textarea id="inputDescripcion" rows="4" class="form-control" placeholder="Pega aquí los datos escaneados con Google Lens o especificaciones del equipo..."></textarea>
                             </div>
-                            <button id="saveExtraDataBtn" style="background: #10b981; color: white; border: none; padding: 0.6rem; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 0.5rem; transition: background 0.2s;">Guardar Datos Adicionales</button>
+                            <button id="saveExtraDataBtn" class="btn btn-green btn-full">💾 Guardar Datos Adicionales</button>
                         </div>
                     </div>
 
-                    <div style="margin-top: 1.5rem; text-align: center;">
-                        <a id="certButton" href="#" target="_blank" class="hidden" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.8rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); transition: transform 0.2s, box-shadow 0.2s; margin-bottom: 0.5rem;">📄 Cert. Calibración</a>
-                        <a id="certInventarioButton" href="#" target="_blank" class="hidden" style="display: inline-block; background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); color: white; padding: 0.8rem 2rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 1.1rem; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); transition: transform 0.2s, box-shadow 0.2s; margin-bottom: 0.5rem;">📄 Cert. Inventario</a>
+                    <!-- Actions & Certificates -->
+                    <div class="action-buttons">
+                        <a id="certButton" href="#" target="_blank" rel="noopener" class="btn btn-gradient-green hidden">
+                            📄 Cert. Calibración
+                        </a>
+                        <a id="certInventarioButton" href="#" target="_blank" rel="noopener" class="btn btn-gradient-purple hidden">
+                            📄 Cert. Inventario
+                        </a>
                         
-                        <div id="addCertSection" class="hidden" style="margin-top: 1rem; background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed #6b7280; text-align: left;">
-                            <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: #9ca3af; text-align: center;">No hay certificado asignado. Puedes agregar uno:</p>
-                            <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                                <input type="url" id="manualLinkInput" placeholder="Pega la URL del certificado..." style="flex: 1; padding: 0.5rem; border-radius: 4px; border: 1px solid #4b5563; background: rgba(31, 41, 55, 0.8); color: white; outline: none;">
-                                <button id="saveManualLinkBtn" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s;">Guardar</button>
+                        <div id="addCertSection" class="add-cert-section hidden">
+                            <p>No hay certificado asignado a este equipo. Puedes vincular uno manualmente:</p>
+                            <div class="input-group">
+                                <input type="url" id="manualLinkInput" placeholder="https://..." class="form-control">
+                                <button id="saveManualLinkBtn" class="btn btn-blue">Guardar Enlace</button>
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="image-panel">
-                    <h2>Imagen</h2>
+
+                <!-- Media & QR Code Panel -->
+                <div class="media-panel glass-panel fade-in delay-1">
+                    <div class="panel-header">
+                        <h2><span class="panel-icon">🖼️</span> Fotografía e Identificación</h2>
+                    </div>
+
                     <div class="image-wrapper">
                         <img id="equipmentImage" src="" alt="Imagen del equipo" class="hidden">
-                        <p id="noImageText">No hay imagen disponible para este equipo.</p>
+                        <div id="noImageText" class="empty-state">
+                            <span class="empty-icon">📷</span>
+                            <p>No hay imagen cargada para este equipo.</p>
+                            <span class="empty-hint">La imagen se buscará automáticamente en la carpeta /Imagenes.</span>
+                        </div>
                     </div>
                     
-                    <div id="qrCodeContainer" class="hidden" style="margin-top: 1.5rem; text-align: center; background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; border: 1px dashed #4b5563;">
-                        <h3 style="font-size: 0.9rem; margin-bottom: 1rem; color: #9ca3af;">Código QR del Equipo</h3>
-                        <div id="qrcode" style="display: flex; justify-content: center; background: white; padding: 10px; border-radius: 8px; width: fit-content; margin: 0 auto;"></div>
-                        <p style="font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem; margin-bottom: 0;">Escanea para abrir el enlace desde tu celular</p>
+                    <div id="qrCodeContainer" class="qr-section hidden">
+                        <h3><span class="qr-icon">📱</span> Código QR de Acceso</h3>
+                        <div class="qr-wrapper">
+                            <div id="qrcode"></div>
+                        </div>
+                        <p class="qr-hint">Escanea con la cámara de tu smartphone para abrir la documentación directamente.</p>
                     </div>
                 </div>
             </section>
         </main>
     </div>
+
+    <!-- Application Script -->
     <script src="app.js"></script>
 </body>
 </html>
