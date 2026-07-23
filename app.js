@@ -1,19 +1,8 @@
-const EXCEL_FILE = 'IC-SM-CAT-LAB LISTA CATAMARCA LAB  --  2.xlsx';
-const CERT_FILE = 'Etiquetas Laboratorio.xls';
-const INVENTARIO_FILE = 'Inventario Catamarca.xlsx';
+const JSON_DB_FILE = 'equipos.json';
 
-let workbook = null;
-let sheetsData = {}; 
-let currentSheetData = [];
-let headers = [];
-let certData = [];
-let certHeaders = [];
-let certRawData = [];
+let jsonDb = []; // Primary JSON Database
 
-let inventarioData = [];
-let inventarioHeaders = [];
-let inventarioRawData = [];
-
+// DOM Elements
 const sheetSelect = document.getElementById('sheetSelect');
 const searchType = document.getElementById('searchType');
 const searchInput = document.getElementById('searchInput');
@@ -36,12 +25,12 @@ const qrcodeElement = document.getElementById('qrcode');
 let qrCodeInstance = null;
 const manualLinkInput = document.getElementById('manualLinkInput');
 const saveManualLinkBtn = document.getElementById('saveManualLinkBtn');
-const cleanDuplicatesBtn = document.getElementById('cleanDuplicatesBtn');
 const extraDataView = document.getElementById('extraDataView');
 const extraDataEdit = document.getElementById('extraDataEdit');
 const toggleEditDataBtn = document.getElementById('toggleEditDataBtn');
 const saveExtraDataBtn = document.getElementById('saveExtraDataBtn');
 const exportExcelBtn = document.getElementById('exportExcelBtn');
+const exportJsonBtn = document.getElementById('exportJsonBtn');
 const viewFabricante = document.getElementById('viewFabricante');
 const viewModelo = document.getElementById('viewModelo');
 const viewDescripcion = document.getElementById('viewDescripcion');
@@ -49,14 +38,37 @@ const inputFabricante = document.getElementById('inputFabricante');
 const inputModelo = document.getElementById('inputModelo');
 const inputDescripcion = document.getElementById('inputDescripcion');
 
-// Responsive UI elements
+// Modal & Image Elements
+const addEquipmentModalBtn = document.getElementById('addEquipmentModalBtn');
+const addModal = document.getElementById('addModal');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const cancelModalBtn = document.getElementById('cancelModalBtn');
+const addEquipmentForm = document.getElementById('addEquipmentForm');
+const newImagenFile = document.getElementById('newImagenFile');
+const newImagen = document.getElementById('newImagen');
+let uploadedImageBase64 = "";
+
+if (newImagenFile) {
+    newImagenFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            newImagen.value = file.name;
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                uploadedImageBase64 = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+}
+
+// Mobile Navigation Drawer
 const mobileMenuToggle = document.getElementById('mobileMenuToggle');
 const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 const sidebarOverlay = document.getElementById('sidebarOverlay');
 const sidebarPanel = document.getElementById('sidebarPanel');
 const resultCount = document.getElementById('resultCount');
 
-// Drawer helpers for mobile devices
 function openSidebar() {
     if (sidebarPanel) sidebarPanel.classList.add('open');
     if (sidebarOverlay) sidebarOverlay.classList.add('active');
@@ -71,453 +83,163 @@ if (mobileMenuToggle) mobileMenuToggle.addEventListener('click', openSidebar);
 if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
 if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
 
-// Initialization
+// Initialize Application (CORS-Safe)
 async function init() {
-    try {
-        const response = await fetch(EXCEL_FILE);
-        const arrayBuffer = await response.arrayBuffer();
-        
-        const wb = XLSX.read(arrayBuffer, { type: 'array' });
-        processWorkbook(wb);
-
-        // Try to load certificates file
+    // 1. Try preloaded data from window.INITIAL_EQUIPOS_DB (Bypasses file:// CORS restriction)
+    if (window.INITIAL_EQUIPOS_DB && Array.isArray(window.INITIAL_EQUIPOS_DB) && window.INITIAL_EQUIPOS_DB.length > 0) {
+        jsonDb = [...window.INITIAL_EQUIPOS_DB];
+        console.log(`Cargados ${jsonDb.length} equipos desde window.INITIAL_EQUIPOS_DB`);
+    } else {
+        // 2. Fallback to fetch equipos.json if running on HTTP server
         try {
-            const certRes = await fetch(CERT_FILE);
-            const certBuf = await certRes.arrayBuffer();
-            const certWb = XLSX.read(certBuf, { type: 'array' });
-            processCertWorkbook(certWb);
-            const msg = document.getElementById('certLoadedMsg');
-            if (msg) msg.classList.remove('hidden');
-        } catch (e) {
-            console.warn("No se pudo cargar 'Etiquetas Laboratorio.xls' automáticamente.", e);
-        }
-
-        // Try to load Inventario file
-        try {
-            const invRes = await fetch(INVENTARIO_FILE);
-            const invBuf = await invRes.arrayBuffer();
-            const invWb = XLSX.read(invBuf, { type: 'array' });
-            processInventarioWorkbook(invWb);
-            const msg = document.getElementById('inventarioLoadedMsg');
-            if (msg) msg.classList.remove('hidden');
-        } catch (e) {
-            console.warn("No se pudo cargar 'Inventario Catamarca.xlsx' automáticamente.", e);
-        }
-
-    } catch (error) {
-        console.error("Error loading Excel file:", error);
-        if (window.location.protocol === 'file:') {
-            // Show fallback for local file:// execution
-            if (localFileWarning) localFileWarning.classList.remove('hidden');
-            if (sheetSelect) sheetSelect.innerHTML = '<option value="">Requiere archivo manual...</option>';
-        } else {
-            if (sheetSelect) sheetSelect.innerHTML = '<option value="">Error cargando archivo</option>';
-        }
-    }
-}
-
-function processWorkbook(wb) {
-    workbook = wb;
-    sheetSelect.innerHTML = '';
-    sheetsData = {};
-    
-    workbook.SheetNames.forEach(sheetName => {
-        const option = document.createElement('option');
-        option.value = sheetName;
-        option.textContent = sheetName;
-        sheetSelect.appendChild(option);
-        
-        const worksheet = workbook.Sheets[sheetName];
-        const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-        sheetsData[sheetName] = data;
-    });
-
-    sheetSelect.disabled = false;
-    searchInput.disabled = false;
-    if (localFileWarning) localFileWarning.classList.add('hidden');
-    loadSheet(sheetSelect.value);
-}
-
-function processCertWorkbook(wb) {
-    certData = [];
-    certRawData = [];
-    const sheetName = wb.SheetNames[0];
-    const worksheet = wb.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-    
-    if (data.length > 0) {
-        certHeaders = data[0];
-    }
-    
-    // Start from row 1 to skip headers
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row) continue;
-        certRawData.push(row);
-        
-        const equipo = String(row[1] || "").trim().toLowerCase(); // Col B
-        const serie = String(row[3] || "").trim().toLowerCase();  // Col D
-        const link = String(row[6] || "").trim();                 // Col G
-        const tipo = String(row[2] || "").trim(); // Col C
-        const fabricante = String(row[4] || "").trim(); // Col E
-        const modelo = String(row[5] || "").trim(); // Col F
-        
-        if (equipo || serie) {
-            certData.push({ equipo, serie, link, tipo, fabricante, modelo, rowIndex: i - 1 });
-        }
-    }
-}
-
-function processInventarioWorkbook(wb) {
-    inventarioData = [];
-    inventarioRawData = [];
-    const sheetName = wb.SheetNames[0];
-    const worksheet = wb.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-    
-    if (data.length > 0) {
-        inventarioHeaders = data[0];
-    }
-    
-    // Determine indices for "Equipo" and "Serie" dynamically
-    let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
-    if (invEqIndex === -1) invEqIndex = 1; // Default to 'Campo/equipo'
-    let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
-    if (invSerIndex === -1) invSerIndex = 3; // Default to 'N Serie'
-
-    let invLinkIndex = inventarioHeaders.findIndex(h => {
-        const lowerH = String(h).toLowerCase();
-        return lowerH.includes('link') || lowerH.includes('url') || lowerH.includes('certificado') || lowerH.includes('documento');
-    });
-
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row) continue;
-        inventarioRawData.push(row);
-        
-        const equipo = String(row[invEqIndex] || "").trim().toLowerCase();
-        const serie = String(row[invSerIndex] || "").trim().toLowerCase();
-        
-        let link = "";
-        if (invLinkIndex !== -1) {
-            link = String(row[invLinkIndex] || "").trim();
-        } else {
-            // Check all columns for something starting with http
-            for (let c = 0; c < row.length; c++) {
-                const val = String(row[c] || "").trim();
-                if (val.startsWith('http')) {
-                    link = val;
-                    break;
-                }
+            const response = await fetch(JSON_DB_FILE);
+            if (response.ok) {
+                jsonDb = await response.json();
             }
+        } catch (e) {
+            console.warn("Navegación local file:// detectada.");
         }
-        
-        if (equipo || serie) {
-            inventarioData.push({ equipo, serie, link, rowData: row, rowIndex: i - 1 });
-        }
+    }
+
+    // 3. Check localStorage for custom added/updated items
+    const localDbStr = localStorage.getItem('equipos_custom_db');
+    let localDb = [];
+    if (localDbStr) {
+        try { localDb = JSON.parse(localDbStr); } catch(e) {}
+    }
+
+    if (localDb && localDb.length > 0) {
+        localDb.forEach(item => {
+            const idx = jsonDb.findIndex(x => 
+                (x.serie && item.serie && x.serie.toLowerCase() === item.serie.toLowerCase()) ||
+                (x.equipo && item.equipo && x.equipo.toLowerCase() === item.equipo.toLowerCase())
+            );
+            if (idx !== -1) {
+                jsonDb[idx] = { ...jsonDb[idx], ...item };
+            } else {
+                jsonDb.unshift(item);
+            }
+        });
+    }
+
+    if (jsonDb.length > 0) {
+        populateSheetDropdownFromDb();
+        filterAndRenderDb();
     }
 }
 
-// Event Listeners for File Inputs
-manualFileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        processWorkbook(wb);
-    };
-    reader.readAsArrayBuffer(file);
-});
-
-manualCertInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        processCertWorkbook(wb);
-        const msg = document.getElementById('certLoadedMsg');
-        if (msg) msg.classList.remove('hidden');
-        
-        const activeLi = document.querySelector('.equipment-list li.active');
-        if (activeLi) activeLi.click(); // re-click to refresh details
-    };
-    reader.readAsArrayBuffer(file);
-});
-
-manualInventarioInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        processInventarioWorkbook(wb);
-        const msg = document.getElementById('inventarioLoadedMsg');
-        if (msg) msg.classList.remove('hidden');
-        
-        const activeLi = document.querySelector('.equipment-list li.active');
-        if (activeLi) activeLi.click(); // re-click to refresh details
-    };
-    reader.readAsArrayBuffer(file);
-});
-
-// Dynamic column indices for the main list
-let eqIndex = 0;
-let serIndex = 2;
-let imgIndex = 6;
-
-function loadSheet(sheetName) {
-    const data = sheetsData[sheetName];
-    if (!data || data.length === 0) return;
-
-    headers = data[0] || [];
-    currentSheetData = data.slice(1); // skip headers
-    
-    // Dynamically find indices based on headers
-    eqIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
-    if (eqIndex === -1) eqIndex = 0;
-    
-    serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('serie'));
-    if (serIndex === -1) serIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('sn'));
-    if (serIndex === -1) serIndex = 2;
-    
-    imgIndex = headers.findIndex(h => h && String(h).toLowerCase() === 'imagen');
-    if (imgIndex === -1) imgIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('imagen'));
-    if (imgIndex === -1) imgIndex = 6;
-    
-    // Clear search and results
-    searchInput.value = '';
-    resultsArea.classList.add('hidden');
-    renderList(currentSheetData);
-}
-
-sheetSelect.addEventListener('change', (e) => {
-    loadSheet(e.target.value);
-});
-
-searchType.addEventListener('change', () => {
-    const val = searchInput.value;
-    filterList(val);
-});
-
-searchInput.addEventListener('input', function() {
-    const val = this.value;
-    filterList(val);
-});
-
-function filterList(searchTerm) {
-    if (!searchTerm) {
-        renderList(currentSheetData);
-        return;
-    }
-    
-    const type = searchType.value;
-    
-    const matches = currentSheetData.filter(row => {
-        const valA = row[eqIndex] ? String(row[eqIndex]).toLowerCase() : "";
-        const valC = row[serIndex] ? String(row[serIndex]).toLowerCase() : "";
-        const s = searchTerm.toLowerCase();
-        
-        if (type === 'equipo') {
-            return valA.includes(s);
-        } else if (type === 'serie') {
-            return valC.includes(s);
-        } else {
-            return valA.includes(s) || valC.includes(s);
-        }
+function populateSheetDropdownFromDb() {
+    if (!sheetSelect) return;
+    sheetSelect.innerHTML = '<option value="TODAS">Todas las Hojas</option>';
+    const sheets = setOfSheetsFromDb();
+    sheets.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        sheetSelect.appendChild(opt);
     });
-    
-    renderList(matches, searchTerm);
 }
 
-function renderList(rows, highlightTerm = "") {
+function setOfSheetsFromDb() {
+    const set = new Set();
+    jsonDb.forEach(item => {
+        if (item.hoja) set.add(item.hoja);
+    });
+    return Array.from(set);
+}
+
+function filterAndRenderDb() {
+    const selectedSheet = sheetSelect.value;
+    const sTerm = (searchInput.value || "").trim().toLowerCase();
+    const type = searchType.value;
+
+    let filtered = jsonDb;
+
+    if (selectedSheet && selectedSheet !== 'TODAS') {
+        filtered = filtered.filter(x => x.hoja === selectedSheet);
+    }
+
+    if (sTerm) {
+        filtered = filtered.filter(x => {
+            const eqVal = (x.equipo || "").toLowerCase();
+            const serVal = (x.serie || "").toLowerCase();
+
+            if (type === 'equipo') return eqVal.includes(sTerm);
+            if (type === 'serie') return serVal.includes(sTerm);
+            return eqVal.includes(sTerm) || serVal.includes(sTerm);
+        });
+    }
+
+    renderDbList(filtered, sTerm);
+}
+
+function renderDbList(items, highlightTerm = "") {
     equipmentList.innerHTML = '';
     const type = searchType.value;
     const isSerie = type === 'serie';
-    const mainColIndex = isSerie ? serIndex : eqIndex;
-    const subColIndex = isSerie ? eqIndex : serIndex;
 
-    // Update Result Count Badge
     if (resultCount) {
-        resultCount.textContent = rows.length;
+        resultCount.textContent = items.length;
         resultCount.classList.remove('hidden');
     }
 
-    rows.forEach(row => {
-        let mainVal = String(row[mainColIndex] || "");
-        let subVal = String(row[subColIndex] || "");
-        
-        if (!mainVal && !subVal) return;
+    items.forEach(item => {
+        let mainVal = isSerie ? (item.serie || item.equipo) : (item.equipo || item.serie);
+        let subVal = isSerie ? item.equipo : item.serie;
+
         if (!mainVal) mainVal = "(Sin datos)";
 
         const li = document.createElement('li');
-        
         let displayHTML = mainVal;
-        let subHTMLText = subVal;
+        let subHTMLText = subVal || "";
 
         if (highlightTerm) {
             const regex = new RegExp(`(${highlightTerm})`, "gi");
-            if (type === 'ambos') {
-                displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
-                subHTMLText = subHTMLText.replace(regex, "<strong>$1</strong>");
-            } else {
-                displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
-            }
+            displayHTML = displayHTML.replace(regex, "<strong>$1</strong>");
+            if (subHTMLText) subHTMLText = subHTMLText.replace(regex, "<strong>$1</strong>");
         }
-        
+
         let subHTML = '';
-        if (subVal && subVal !== 'undefined') {
+        if (subHTMLText) {
             subHTML = `<span class="sub-info">${isSerie ? 'Equipo: ' : 'Serie: '} ${subHTMLText}</span>`;
         }
 
         li.innerHTML = displayHTML + subHTML;
-        
+
         li.addEventListener('click', () => {
             document.querySelectorAll('.equipment-list li').forEach(el => el.classList.remove('active'));
             li.classList.add('active');
-            showResults(row);
-            closeSidebar(); // Auto-close drawer on mobile when an item is selected
+            showDbResults(item);
+            closeSidebar();
         });
 
         equipmentList.appendChild(li);
     });
 }
 
-function showResults(row) {
+function showDbResults(item) {
     resultsArea.classList.remove('hidden');
-    
-    // Populate details grid
     detailsGrid.innerHTML = '';
-    headers.forEach((header, index) => {
-        if (!header) return;
-        const value = row[index];
-        if (value !== undefined && value !== "") {
-            let valueHTML = `<span class="detail-value">${value}</span>`;
-            
-            if (String(value).trim().startsWith('http')) {
-                valueHTML = `<a href="${String(value).trim()}" target="_blank" rel="noopener" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 0.2rem 0.6rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #3b82f6; display: inline-block;">🔗 Abrir Enlace</a>`;
+
+    const mainDetails = item.detalles || { "Equipo": item.equipo, "Número de Serie": item.serie, "Hoja": item.hoja };
+    
+    Object.keys(mainDetails).forEach(key => {
+        const val = mainDetails[key];
+        if (val !== undefined && val !== "") {
+            let valueHTML = `<span class="detail-value">${val}</span>`;
+            if (String(val).trim().startsWith('http')) {
+                valueHTML = `<a href="${String(val).trim()}" target="_blank" rel="noopener" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 0.2rem 0.6rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #3b82f6; display: inline-block;">🔗 Abrir Enlace</a>`;
             }
-            
             const div = document.createElement('div');
             div.className = 'detail-item';
-            div.innerHTML = `
-                <span class="detail-label">${header}</span>
-                ${valueHTML}
-            `;
+            div.innerHTML = `<span class="detail-label">${key}</span>${valueHTML}`;
             detailsGrid.appendChild(div);
         }
     });
 
-    // Check for inventario
-    certInventarioButton.classList.add('hidden');
-    certInventarioButton.href = "#";
-    inventarioDataSection.classList.add('hidden');
-    inventarioDetailsGrid.innerHTML = '';
-    
-    const mainEquipo = String(row[eqIndex] || "").trim().toLowerCase();
-    const mainSerie = String(row[serIndex] || "").trim().toLowerCase();
-
-    let invMatch = undefined;
-
-    if (inventarioData.length > 0) {
-        invMatch = inventarioData.find(c => 
-            (c.serie !== "" && mainSerie !== "" && c.serie === mainSerie) ||
-            (c.equipo !== "" && mainEquipo !== "" && c.equipo === mainEquipo)
-        );
-        
-        if (invMatch) {
-            inventarioDataSection.classList.remove('hidden');
-            
-            inventarioHeaders.forEach((header, index) => {
-                if (!header) return;
-                const value = invMatch.rowData[index];
-                if (value !== undefined && value !== "") {
-                    let valueHTML = `<span class="detail-value">${value}</span>`;
-                    if (String(value).trim().startsWith('http')) {
-                        valueHTML = `<a href="${String(value).trim()}" target="_blank" rel="noopener" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; padding: 0.2rem 0.6rem; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: bold; border: 1px solid #a855f7; display: inline-block;">🔗 Abrir Enlace</a>`;
-                    }
-                    const div = document.createElement('div');
-                    div.className = 'detail-item';
-                    div.innerHTML = `<span class="detail-label">${header}</span>${valueHTML}`;
-                    inventarioDetailsGrid.appendChild(div);
-                }
-            });
-            
-            if (invMatch.link) {
-                certInventarioButton.href = invMatch.link;
-                certInventarioButton.classList.remove('hidden');
-            }
-        }
-    }
-    
-    // First check local storage for a manually added link
-    const localKey = `cert_${mainEquipo}_${mainSerie}`;
-    let certLink = localStorage.getItem(localKey) || "";
-    let searchData = null;
-    
-    if (certData.length > 0) {
-        const match = certData.find(c => 
-            c.equipo === mainEquipo && c.serie === mainSerie
-        );
-        if (match) {
-            searchData = match;
-            if (!certLink && match.link) {
-                certLink = match.link;
-            }
-        }
-    }
-
-    // QR Code generation
-    qrCodeContainer.classList.add('hidden');
-    qrcodeElement.innerHTML = '';
-    
-    let finalLinkForQr = "";
-    if (certLink) finalLinkForQr = certLink;
-    else if (typeof invMatch !== 'undefined' && invMatch && invMatch.link) finalLinkForQr = invMatch.link;
-    else {
-        for (let i = 0; i < row.length; i++) {
-            if (String(row[i]).trim().startsWith('http')) {
-                finalLinkForQr = String(row[i]).trim();
-                break;
-            }
-        }
-    }
-
-    if (finalLinkForQr && typeof QRCode !== 'undefined') {
-        qrCodeContainer.classList.remove('hidden');
-        if (qrCodeInstance) {
-            qrCodeInstance.clear();
-            qrCodeInstance.makeCode(finalLinkForQr);
-        } else {
-            qrCodeInstance = new QRCode(qrcodeElement, {
-                text: finalLinkForQr,
-                width: 150,
-                height: 150,
-                colorDark : "#000000",
-                colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.M
-            });
-        }
-    }
-
-    // Load extra data (Fabricante, Modelo, Descripcion)
-    const localExtraKey = `extra_${mainEquipo}_${mainSerie}`;
-    let savedExtra = null;
-    try {
-        const savedStr = localStorage.getItem(localExtraKey);
-        if (savedStr) savedExtra = JSON.parse(savedStr);
-    } catch(e) {}
-
-    let fabricante = savedExtra?.fabricante || (searchData ? searchData.fabricante : "");
-    let modelo = savedExtra?.modelo || (searchData ? searchData.modelo : "");
-    let descripcion = savedExtra?.descripcion || (searchData ? searchData.descripcion : "");
+    let fabricante = item.fabricante || "";
+    let modelo = item.modelo || "";
+    let descripcion = item.descripcion || "";
 
     viewFabricante.textContent = fabricante || "-";
     viewModelo.textContent = modelo || "-";
@@ -536,68 +258,6 @@ function showResults(row) {
             inputFabricante.value = fabricante;
             inputModelo.value = modelo;
             inputDescripcion.value = descripcion;
-            
-            const handlePaste = (e) => {
-                setTimeout(() => {
-                    const val = e.target.value;
-                    let text = val;
-                    let parsedFabricante = inputFabricante.value;
-                    let parsedModelo = inputModelo.value;
-                    let isParsed = false;
-
-                    text = text.replace(/•/g, '').replace(/[\r\n]+/g, ' ');
-
-                    const lookahead = '(?=\\s*(?:modelo|marca|fabricante|(?:breve\\s+)?descripci[oó]n)\\s*[:\\-\\/]|$)';
-                    
-                    const fabRegex = new RegExp(`(?:fabricante|marca)[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
-                    const modRegex = new RegExp(`modelo[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
-                    const descRegex = new RegExp(`(?:breve\\s+)?descripci[oó]n[^:\\-]*[:\\-]\\s*(.*?)${lookahead}`, 'i');
-
-                    const fabMatch = text.match(fabRegex);
-                    if (fabMatch && fabMatch[1]) {
-                        parsedFabricante = fabMatch[1].trim();
-                        isParsed = true;
-                    }
-
-                    const modMatch = text.match(modRegex);
-                    if (modMatch && modMatch[1]) {
-                        parsedModelo = modMatch[1].trim();
-                        isParsed = true;
-                    }
-
-                    let descText = text;
-                    const descMatch = text.match(descRegex);
-                    if (descMatch && descMatch[1]) {
-                        descText = descMatch[1].trim();
-                        isParsed = true;
-                    } else if (isParsed) {
-                        descText = text.replace(fabRegex, '').replace(modRegex, '').trim();
-                    }
-
-                    if (isParsed) {
-                        if (parsedFabricante) inputFabricante.value = parsedFabricante;
-                        if (parsedModelo) inputModelo.value = parsedModelo;
-                        
-                        let words = descText.split(/\s+/);
-                        if (words.length > 100) {
-                            descText = words.slice(0, 100).join(' ') + '...';
-                        }
-                        inputDescripcion.value = descText;
-
-                        if (e.target.id !== 'inputDescripcion') {
-                            e.target.value = parsedFabricante || parsedModelo;
-                            setTimeout(() => {
-                                inputFabricante.value = parsedFabricante;
-                                inputModelo.value = parsedModelo;
-                            }, 50);
-                        }
-                    }
-                }, 10);
-            };
-            inputFabricante.onpaste = handlePaste;
-            inputModelo.onpaste = handlePaste;
-            inputDescripcion.onpaste = handlePaste;
-
         } else {
             extraDataView.classList.remove('hidden');
             extraDataEdit.classList.add('hidden');
@@ -606,21 +266,22 @@ function showResults(row) {
     };
 
     saveExtraDataBtn.onclick = () => {
-        fabricante = inputFabricante.value.trim();
-        modelo = inputModelo.value.trim();
-        descripcion = inputDescripcion.value.trim();
-        
-        localStorage.setItem(localExtraKey, JSON.stringify({ fabricante, modelo, descripcion }));
-        
-        viewFabricante.textContent = fabricante || "-";
-        viewModelo.textContent = modelo || "-";
-        viewDescripcion.textContent = descripcion || "-";
-        
+        item.fabricante = inputFabricante.value.trim();
+        item.modelo = inputModelo.value.trim();
+        item.descripcion = inputDescripcion.value.trim();
+
+        saveDbToLocal();
+
+        viewFabricante.textContent = item.fabricante || "-";
+        viewModelo.textContent = item.modelo || "-";
+        viewDescripcion.textContent = item.descripcion || "-";
+
         extraDataView.classList.remove('hidden');
         extraDataEdit.classList.add('hidden');
         toggleEditDataBtn.textContent = '✏️ Editar';
     };
 
+    let certLink = item.linkCertificado || "";
     if (certLink) {
         certButton.href = certLink;
         certButton.classList.remove('hidden');
@@ -629,11 +290,12 @@ function showResults(row) {
         certButton.classList.add('hidden');
         addCertSection.classList.remove('hidden');
         manualLinkInput.value = '';
-        
+
         saveManualLinkBtn.onclick = () => {
             const newLink = manualLinkInput.value.trim();
             if (newLink) {
-                localStorage.setItem(localKey, newLink);
+                item.linkCertificado = newLink;
+                saveDbToLocal();
                 certButton.href = newLink;
                 certButton.classList.remove('hidden');
                 addCertSection.classList.add('hidden');
@@ -641,181 +303,330 @@ function showResults(row) {
         };
     }
 
-    // Handle Image
-    const imageName = row[imgIndex];
-    
-    equipmentImage.onclick = null;
-    equipmentImage.style.cursor = 'default';
-    equipmentImage.title = "";
+    // QR Code
+    qrCodeContainer.classList.add('hidden');
+    qrcodeElement.innerHTML = '';
+    if (certLink && typeof QRCode !== 'undefined') {
+        qrCodeContainer.classList.remove('hidden');
+        if (qrCodeInstance) {
+            qrCodeInstance.clear();
+            qrCodeInstance.makeCode(certLink);
+        } else {
+            qrCodeInstance = new QRCode(qrcodeElement, {
+                text: certLink,
+                width: 150,
+                height: 150,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+    }
 
+    // Equipment Image Processing
+    const imageName = item.imagen;
+    equipmentImage.onclick = null;
     if (imageName && String(imageName).trim() !== "") {
         let imgStr = String(imageName).trim();
         let imgPath = imgStr;
         
-        if (!imgStr.toLowerCase().startsWith('http')) {
+        if (!imgStr.startsWith('data:image') && !imgStr.toLowerCase().startsWith('http')) {
             imgPath = `Imagenes/${imgStr}`;
-            if (!imgPath.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/)) {
+            if (!imgPath.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)) {
                 imgPath += '.jpg';
             }
         }
-
         equipmentImage.src = imgPath;
         equipmentImage.classList.remove('hidden');
         noImageText.classList.add('hidden');
-        
-        equipmentImage.style.cursor = 'pointer';
-        
-        equipmentImage.onmouseover = () => {
-            equipmentImage.style.transform = 'scale(1.02)';
-        };
-        equipmentImage.onmouseout = () => {
-            equipmentImage.style.transform = 'scale(1)';
-        };
-
-        const hasExtraData = (searchData && searchData.tipo) || fabricante || modelo || descripcion;
-
-        if (hasExtraData) {
-            equipmentImage.title = "Haz clic para buscar información de este equipo en internet";
-        } else {
-            equipmentImage.title = "Haz clic derecho y selecciona 'Buscar imagen con Google' para identificarlo";
-        }
-
-        equipmentImage.onclick = () => {
-            if (hasExtraData) {
-                const tipoStr = (searchData && searchData.tipo) ? searchData.tipo : "";
-                const query = `${tipoStr} ${fabricante} ${modelo}`.trim();
-                window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank');
-            } else {
-                alert("Como la imagen está en tu computadora local, no podemos enviarla automáticamente.\n\nPara buscarla por imagen, haz CLIC DERECHO sobre esta foto y selecciona 'Buscar imagen con Google' o 'Buscar en la web'.");
-            }
-        };
     } else {
         equipmentImage.classList.add('hidden');
         noImageText.classList.remove('hidden');
     }
 }
 
-// Export to Excel
-exportExcelBtn.addEventListener('click', () => {
-    if (!inventarioRawData || inventarioRawData.length === 0) {
-        alert("No hay datos de Inventario cargados para exportar. Por favor, carga el Inventario primero (Botón 3).");
-        return;
-    }
+function saveDbToLocal() {
+    try {
+        localStorage.setItem('equipos_custom_db', JSON.stringify(jsonDb));
+    } catch(e) {}
+}
 
-    const validIndices = [];
-    const cleanHeaders = [];
-    if (headers && headers.length > 0) {
-        headers.forEach((h, i) => {
-            let headerName = h && String(h).trim() !== "" ? String(h).trim() : "";
-            
-            if (i === imgIndex && headerName === "") {
-                headerName = "Imagen";
+// Modal Handlers for Adding New Equipment
+if (addEquipmentModalBtn) {
+    addEquipmentModalBtn.addEventListener('click', () => {
+        uploadedImageBase64 = "";
+        if (addModal) addModal.classList.remove('hidden');
+    });
+}
+
+if (closeModalBtn) {
+    closeModalBtn.addEventListener('click', () => {
+        if (addModal) addModal.classList.add('hidden');
+    });
+}
+
+if (cancelModalBtn) {
+    cancelModalBtn.addEventListener('click', () => {
+        if (addModal) addModal.classList.add('hidden');
+    });
+}
+
+if (addEquipmentForm) {
+    addEquipmentForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const equipo = document.getElementById('newEquipo').value.trim();
+        const serie = document.getElementById('newSerie').value.trim();
+        const fabricante = document.getElementById('newFabricante').value.trim();
+        const modelo = document.getElementById('newModelo').value.trim();
+        const hoja = document.getElementById('newHoja').value.trim().toUpperCase() || 'GENERAL';
+        const imagenText = document.getElementById('newImagen').value.trim();
+        const imagen = uploadedImageBase64 || imagenText;
+        const linkCertificado = document.getElementById('newCertificado').value.trim();
+        const descripcion = document.getElementById('newDescripcion').value.trim();
+
+        const newItem = {
+            hoja,
+            equipo,
+            serie,
+            imagen,
+            fabricante,
+            modelo,
+            descripcion,
+            linkCertificado,
+            detalles: {
+                "Equipo": equipo,
+                "Número de Serie": serie,
+                "Hoja": hoja,
+                "Fabricante": fabricante,
+                "Modelo": modelo
             }
+        };
 
-            if (headerName !== "") {
-                validIndices.push(i);
-                cleanHeaders.push(headerName);
-            } else if (i === imgIndex) {
-                validIndices.push(i);
-                cleanHeaders.push("Imagen");
-            }
-        });
-    }
-
-    const exportHeaders = [
-        ...inventarioHeaders, 
-        ...cleanHeaders, 
-        "Tipo Extra", "Fabricante Extra", "Modelo Extra", "Enlace Certificado", "Descripción Adicional"
-    ];
-    const exportData = [exportHeaders];
-
-    let invEqIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
-    if (invEqIndex === -1) invEqIndex = 1;
-    let invSerIndex = inventarioHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie'));
-    if (invSerIndex === -1) invSerIndex = 3;
-
-    let certEqIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('equipo')) : -1;
-    if (certEqIndex === -1) certEqIndex = 1;
-    let certSerIndex = certHeaders && certHeaders.length > 0 ? certHeaders.findIndex(h => h && String(h).toLowerCase().includes('serie')) : -1;
-    if (certSerIndex === -1) certSerIndex = 3;
-
-    inventarioRawData.forEach(invRow => {
-        const invEq = String(invRow[invEqIndex] || "").trim().toLowerCase();
-        const invSer = String(invRow[invSerIndex] || "").trim().toLowerCase();
-
-        let mainMatch = null;
-
-        if (currentSheetData && currentSheetData.length > 0) {
-            mainMatch = currentSheetData.find(m => {
-                const mEq = String(m[eqIndex] || "").trim().toLowerCase();
-                const mSer = String(m[serIndex] || "").trim().toLowerCase();
-                
-                if (invSer !== "" && mSer !== "" && invSer === mSer) return true;
-                if (invEq !== "" && mEq !== "" && invEq === mEq) return true;
-                return false;
-            });
+        const existingIdx = jsonDb.findIndex(x => x.serie && x.serie.toLowerCase() === serie.toLowerCase());
+        if (existingIdx !== -1) {
+            jsonDb[existingIdx] = { ...jsonDb[existingIdx], ...newItem };
+        } else {
+            jsonDb.unshift(newItem);
         }
 
-        let certMatch = null;
-        if (certRawData && certRawData.length > 0) {
-            certMatch = certRawData.find(c => {
-                const cEq = String(c[certEqIndex] || "").trim().toLowerCase();
-                const cSer = String(c[certSerIndex] || "").trim().toLowerCase();
-                
-                if (invSer !== "" && cSer !== "" && invSer === cSer) return true;
-                if (invEq !== "" && cEq !== "" && invEq === cEq) return true;
-                return false;
-            });
-        }
+        saveDbToLocal();
+        populateSheetDropdownFromDb();
+        filterAndRenderDb();
 
-        let newRow = [];
-        inventarioHeaders.forEach((h, i) => {
-            newRow.push(invRow[i] !== undefined ? invRow[i] : "");
-        });
-        
-        validIndices.forEach(idx => {
-            newRow.push(mainMatch && mainMatch[idx] !== undefined ? mainMatch[idx] : "");
-        });
+        addEquipmentForm.reset();
+        uploadedImageBase64 = "";
+        if (addModal) addModal.classList.add('hidden');
 
-        let tipo = certMatch ? (certMatch[2] || "") : "";
-        let fabricante = certMatch ? (certMatch[4] || "") : "";
-        let modelo = certMatch ? (certMatch[5] || "") : "";
-        let link = certMatch ? (certMatch[6] || "") : "";
-        let descripcion = "";
+        alert(`¡Equipo '${equipo}' (${serie}) guardado correctamente en la base de datos!`);
+    });
+}
 
-        const localExtraKey = `extra_${invEq}_${invSer}`;
-        try {
-            const savedStr = localStorage.getItem(localExtraKey);
-            if (savedStr) {
-                const parsed = JSON.parse(savedStr);
-                descripcion = parsed.descripcion || "";
-                if (parsed.fabricante) fabricante = parsed.fabricante;
-                if (parsed.modelo) modelo = parsed.modelo;
+// Export equipos.json File for Git Commit
+if (exportJsonBtn) {
+    exportJsonBtn.addEventListener('click', () => {
+        const jsonStr = JSON.stringify(jsonDb, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'equipos.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+}
+
+// Manual Excel File Inputs Listener (For updating DB from Excel)
+if (manualFileInput) {
+    manualFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const data = new Uint8Array(evt.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            processWorkbook(wb);
+        };
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+if (manualCertInput) {
+    manualCertInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const data = new Uint8Array(evt.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            processCertWorkbook(wb);
+            const msg = document.getElementById('certLoadedMsg');
+            if (msg) msg.classList.remove('hidden');
+        };
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+if (manualInventarioInput) {
+    manualInventarioInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const data = new Uint8Array(evt.target.result);
+            const wb = XLSX.read(data, { type: 'array' });
+            processInventarioWorkbook(wb);
+            const msg = document.getElementById('inventarioLoadedMsg');
+            if (msg) msg.classList.remove('hidden');
+        };
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+function processWorkbook(wb) {
+    wb.SheetNames.forEach(sheetName => {
+        const worksheet = wb.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+        if (data.length > 0) {
+            const h = data[0] || [];
+            const eqIdx = h.findIndex(x => String(x).toLowerCase().includes('equipo'));
+            const serIdx = h.findIndex(x => String(x).toLowerCase().includes('serie') || String(x).toLowerCase().includes('sn'));
+            const imgIdx = h.findIndex(x => String(x).toLowerCase().includes('imagen'));
+
+            for (let i = 1; i < data.length; i++) {
+                const r = data[i];
+                if (!r) continue;
+                const eq = String(r[eqIdx >= 0 ? eqIdx : 0] || "").trim();
+                const ser = String(r[serIdx >= 0 ? serIdx : 2] || "").trim();
+                const img = String(r[imgIdx >= 0 ? imgIdx : 6] || "").trim();
+
+                if (eq || ser) {
+                    const detalles = {};
+                    h.forEach((headerName, colIdx) => {
+                        if (headerName && r[colIdx]) detalles[headerName] = r[colIdx];
+                    });
+                    
+                    const newItem = {
+                        hoja: sheetName,
+                        equipo: eq,
+                        serie: ser,
+                        imagen: img,
+                        fabricante: "",
+                        modelo: "",
+                        descripcion: "",
+                        linkCertificado: "",
+                        detalles
+                    };
+
+                    const idx = jsonDb.findIndex(x => x.serie && ser && x.serie.toLowerCase() === ser.toLowerCase());
+                    if (idx !== -1) {
+                        jsonDb[idx] = { ...jsonDb[idx], ...newItem };
+                    } else {
+                        jsonDb.push(newItem);
+                    }
+                }
             }
-        } catch(e) {}
-        
-        const localCertKey = `cert_${invEq}_${invSer}`;
-        let manualLink = localStorage.getItem(localCertKey);
-        if (manualLink) {
-            link = manualLink;
         }
-
-        newRow.push(tipo);
-        newRow.push(fabricante);
-        newRow.push(modelo);
-        newRow.push(link);
-        newRow.push(descripcion);
-
-        exportData.push(newRow);
     });
 
-    const ws = XLSX.utils.aoa_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Inventario_Exportado");
-    
-    const dateString = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `Inventario_Exportado_${dateString}.xlsx`);
-});
+    saveDbToLocal();
+    populateSheetDropdownFromDb();
+    filterAndRenderDb();
+    alert("¡Lista de equipos actualizada en la base de datos!");
+}
 
-// Start app
+function processCertWorkbook(wb) {
+    const sheetName = wb.SheetNames[0];
+    const worksheet = wb.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row) continue;
+
+        const c_eq = String(row[1] || "").trim().toLowerCase();
+        const c_ser = String(row[3] || "").trim().toLowerCase();
+        const c_tipo = String(row[2] || "").trim();
+        const c_fab = String(row[4] || "").trim();
+        const c_mod = String(row[5] || "").trim();
+        const c_link = String(row[6] || "").trim();
+
+        jsonDb.forEach(eq => {
+            const m_eq = (eq.equipo || "").trim().toLowerCase();
+            const m_ser = (eq.serie || "").trim().toLowerCase();
+
+            if ((c_ser && m_ser && c_ser === m_ser) || (c_eq && m_eq && c_eq === m_eq)) {
+                if (c_fab) eq.fabricante = c_fab;
+                if (c_mod) eq.modelo = c_mod;
+                if (c_link) eq.linkCertificado = c_link;
+            }
+        });
+    }
+
+    saveDbToLocal();
+    filterAndRenderDb();
+}
+
+function processInventarioWorkbook(wb) {
+    const sheetName = wb.SheetNames[0];
+    const worksheet = wb.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+    const headers = data[0] || [];
+
+    let invEqIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('equipo'));
+    if (invEqIndex === -1) invEqIndex = 1;
+    let invSerIndex = headers.findIndex(h => h && String(h).toLowerCase().includes('serie'));
+    if (invSerIndex === -1) invSerIndex = 3;
+
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row) continue;
+        const invEq = String(row[invEqIndex] || "").trim().toLowerCase();
+        const invSer = String(row[invSerIndex] || "").trim().toLowerCase();
+
+        jsonDb.forEach(eq => {
+            const m_eq = (eq.equipo || "").trim().toLowerCase();
+            const m_ser = (eq.serie || "").trim().toLowerCase();
+
+            if ((invSer && m_ser && invSer === m_ser) || (invEq && m_eq && invEq === m_eq)) {
+                headers.forEach((hName, colIdx) => {
+                    if (hName && row[colIdx]) {
+                        if (!eq.detalles) eq.detalles = {};
+                        eq.detalles[`[Inv] ${hName}`] = row[colIdx];
+                    }
+                });
+            }
+        });
+    }
+
+    saveDbToLocal();
+    filterAndRenderDb();
+}
+
+// Search and Filter Listeners
+if (sheetSelect) sheetSelect.addEventListener('change', filterAndRenderDb);
+if (searchType) searchType.addEventListener('change', filterAndRenderDb);
+if (searchInput) searchInput.addEventListener('input', filterAndRenderDb);
+
+// Export Consolidate Excel
+if (exportExcelBtn) {
+    exportExcelBtn.addEventListener('click', () => {
+        const exportData = [];
+        if (jsonDb.length > 0) {
+            exportData.push(["Hoja", "Equipo", "Serie", "Fabricante", "Modelo", "Imagen", "Link Certificado", "Descripción"]);
+            jsonDb.forEach(x => {
+                exportData.push([x.hoja || "", x.equipo || "", x.serie || "", x.fabricante || "", x.modelo || "", x.imagen || "", x.linkCertificado || "", x.descripcion || ""]);
+            });
+        }
+        const ws = XLSX.utils.aoa_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Base_Datos_Consolidada");
+        const dateString = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(wb, `Base_Datos_Equipos_${dateString}.xlsx`);
+    });
+}
+
+// Start Application
 window.addEventListener('DOMContentLoaded', init);

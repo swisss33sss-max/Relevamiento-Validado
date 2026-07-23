@@ -28,12 +28,15 @@
                     <div class="brand-icon">🔬</div>
                     <div class="brand-text">
                         <h1>Gestión de Equipamiento</h1>
-                        <p class="subtitle">Laboratorio Catamarca</p>
+                        <p class="subtitle">Base de Datos & Laboratorio Catamarca</p>
                     </div>
                 </div>
 
                 <div class="nav-actions">
                     <div class="status-messages">
+                        <div id="dbLoadedMsg" class="status-badge badge-green">
+                            <span class="badge-dot"></span> Base de Datos Lista
+                        </div>
                         <div id="certLoadedMsg" class="status-badge badge-green hidden">
                             <span class="badge-dot"></span> Etiquetas Lab
                         </div>
@@ -49,18 +52,28 @@
                 </div>
             </div>
 
-            <!-- Local File Execution Warning -->
+            <!-- Local File Execution Warning (Hidden by default since JS DB loads natively) -->
             <div id="localFileWarning" class="alert alert-danger hidden">
                 <div class="alert-content">
                     <span class="alert-icon">⚠️</span>
-                    <p><strong>Modo Local detectado:</strong> El navegador requiere que selecciones los archivos Excel manualmente utilizando los botones inferiores.</p>
+                    <p><strong>Carga Manual:</strong> Si necesitas actualizar con un nuevo Excel, utiliza los botones de la barra inferior.</p>
                 </div>
             </div>
 
             <!-- Main Toolbar -->
             <div class="toolbar glass-panel">
                 <div class="toolbar-group">
-                    <label class="btn btn-red" title="Cargar archivo Excel con la lista de equipos">
+                    <button id="addEquipmentModalBtn" class="btn btn-purple" title="Agregar un nuevo equipo a la base de datos">
+                        <span class="btn-icon">➕</span>
+                        <span class="btn-label">Agregar Equipo</span>
+                    </button>
+
+                    <button id="exportJsonBtn" class="btn btn-orange" title="Exportar la base de datos actualizada equipos.json para Git">
+                        <span class="btn-icon">💾</span>
+                        <span class="btn-label">Guardar DB JSON</span>
+                    </button>
+
+                    <label class="btn btn-red" title="Cargar/Actualizar archivo Excel con la lista de equipos">
                         <span class="btn-icon">📁</span>
                         <span class="btn-label">1. Lista Principal</span>
                         <input type="file" id="manualFileInput" accept=".xlsx, .xls" class="hidden-input">
@@ -82,11 +95,6 @@
                         <span class="btn-icon">📊</span>
                         <span class="btn-label">Exportar Excel</span>
                     </button>
-
-                    <button id="cleanDuplicatesBtn" class="btn btn-orange hidden">
-                        <span class="btn-icon">✨</span>
-                        <span class="btn-label">Limpiar Duplicados</span>
-                    </button>
                 </div>
             </div>
         </header>
@@ -102,9 +110,9 @@
 
                 <div class="controls-container">
                     <div class="control-group">
-                        <label for="sheetSelect">Hoja de Trabajo</label>
-                        <select id="sheetSelect" disabled>
-                            <option value="">Cargando Excel...</option>
+                        <label for="sheetSelect">Hoja / Categoría</label>
+                        <select id="sheetSelect">
+                            <option value="TODAS">Todas las Hojas</option>
                         </select>
                     </div>
                     
@@ -112,18 +120,18 @@
                         <label for="searchType">Filtro de búsqueda</label>
                         <select id="searchType">
                             <option value="ambos">Ambos (Equipo y Serie)</option>
-                            <option value="equipo">Solo Equipo (Columna A)</option>
-                            <option value="serie">Solo Número de Serie (Columna C)</option>
+                            <option value="equipo">Solo Equipo</option>
+                            <option value="serie">Solo Número de Serie</option>
                         </select>
                     </div>
 
                     <div class="control-group search-box">
                         <div class="label-with-badge">
                             <label for="searchInput">Buscar Equipo</label>
-                            <span id="resultCount" class="count-badge hidden">0</span>
+                            <span id="resultCount" class="count-badge">0</span>
                         </div>
                         <div class="search-input-wrapper">
-                            <input type="text" id="searchInput" placeholder="Nombre de equipo o N° Serie..." disabled autocomplete="off">
+                            <input type="text" id="searchInput" placeholder="Nombre de equipo o N° Serie..." autocomplete="off">
                             <span class="search-icon">🔍</span>
                         </div>
                     </div>
@@ -245,7 +253,74 @@
         </main>
     </div>
 
-    <!-- Application Script -->
+    <!-- Modal Form: Agregar Nuevo Equipo -->
+    <div id="addModal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <h2>➕ Agregar Nuevo Equipo a la Base de Datos</h2>
+                <button id="closeModalBtn" class="close-modal-btn">✕</button>
+            </div>
+            <form id="addEquipmentForm" class="modal-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="newEquipo">Nombre del Equipo *</label>
+                        <input type="text" id="newEquipo" class="form-control" required placeholder="Ej: PIPETA MULTICANAL 8 CANALES">
+                    </div>
+                    <div class="form-group">
+                        <label for="newSerie">Número de Serie *</label>
+                        <input type="text" id="newSerie" class="form-control" required placeholder="Ej: 12500108">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="newFabricante">Fabricante</label>
+                        <input type="text" id="newFabricante" class="form-control" placeholder="Ej: Eppendorf">
+                    </div>
+                    <div class="form-group">
+                        <label for="newModelo">Modelo</label>
+                        <input type="text" id="newModelo" class="form-control" placeholder="Ej: Research Plus">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="newHoja">Hoja / Categoría</label>
+                        <input type="text" id="newHoja" class="form-control" placeholder="Ej: PIPETAS, EQUIPOS..." value="GENERAL">
+                    </div>
+                    <div class="form-group">
+                        <label for="newImagen">Fotografía del Equipo</label>
+                        <div class="input-group">
+                            <input type="text" id="newImagen" class="form-control" placeholder="Nombre de archivo (ej: 12500108.jpg)">
+                            <label class="btn btn-blue" style="margin:0; white-space:nowrap;" title="Seleccionar foto desde la cámara o galería">
+                                📷 Seleccionar Foto
+                                <input type="file" id="newImagenFile" accept="image/*" class="hidden-input">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="newCertificado">Link del Certificado (URL)</label>
+                    <input type="url" id="newCertificado" class="form-control" placeholder="https://...">
+                </div>
+
+                <div class="form-group">
+                    <label for="newDescripcion">Descripción / Observaciones</label>
+                    <textarea id="newDescripcion" rows="3" class="form-control" placeholder="Especificaciones técnicas o notas..."></textarea>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" id="cancelModalBtn" class="btn btn-red">Cancelar</button>
+                    <button type="submit" class="btn btn-green">💾 Guardar Equipo en DB</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Load Embedded Data Script FIRST to bypass local file:// CORS restrictions -->
+    <script src="equipos_data.js"></script>
+    <!-- Application Logic Script -->
     <script src="app.js"></script>
 </body>
 </html>
